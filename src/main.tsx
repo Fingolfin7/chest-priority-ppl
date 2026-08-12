@@ -1,39 +1,40 @@
-import { StrictMode, useState } from "react";
+import { StrictMode, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "./styles.css";
 
 type WorkoutKey = "push" | "pull" | "legs";
 type Demo = { label: string; slug: string };
-type Exercise = { name: string; sets: string; reps: string; rest: string; cue: string; demos: Demo[] };
+type Exercise = { name: string; sets: string; reps: string; rest: string; warmup: string; cue: string; demos: Demo[] };
+type LightboxImage = { src: string; alt: string };
 
 const workouts: Record<WorkoutKey, { summary: string; exercises: Exercise[] }> = {
   push: {
     summary: "5 exercises · chest priority",
     exercises: [
-      { name: "Barbell bench press", sets: "4", reps: "5–8", rest: "2–4 min", cue: "Set your upper back, plant your feet, and touch the same lower-chest point each rep.", demos: [{ label: "Bench press", slug: "bench" }] },
-      { name: "Incline dumbbell bench press", sets: "3", reps: "6–10", rest: "2–3 min", cue: "Use a modest incline. Lower with control and press up and slightly inward.", demos: [{ label: "Incline press", slug: "incline-press" }] },
-      { name: "Cable fly", sets: "2", reps: "10–15", rest: "60–90 sec", cue: "Keep a soft elbow and bring your upper arms across your chest without turning it into a press.", demos: [{ label: "Cable fly", slug: "cable-fly" }] },
-      { name: "Lateral raise", sets: "2–3", reps: "12–20", rest: "60–90 sec", cue: "Lead with your elbows, stop near shoulder height, and keep momentum out of it.", demos: [{ label: "Lateral raise", slug: "lateral-raise" }] },
-      { name: "Cable triceps pushdown", sets: "3", reps: "8–12", rest: "60–90 sec", cue: "Pin your upper arms, extend fully, then control the return.", demos: [{ label: "Pushdown", slug: "pushdown" }] },
+      { name: "Barbell bench press", sets: "4", reps: "5–8", rest: "2–4 min", warmup: "3–4 ramp sets", cue: "Set your upper back, plant your feet, and touch the same lower-chest point each rep.", demos: [{ label: "Bench press", slug: "bench" }] },
+      { name: "Incline dumbbell bench press", sets: "3", reps: "6–10", rest: "2–3 min", warmup: "1–2 ramp sets × 6–8", cue: "Use a modest incline. Lower with control and press up and slightly inward.", demos: [{ label: "Incline press", slug: "incline-press" }] },
+      { name: "Cable fly", sets: "2", reps: "10–15", rest: "60–90 sec", warmup: "1 light set × 12–15", cue: "Keep a soft elbow and bring your upper arms across your chest without turning it into a press.", demos: [{ label: "Cable fly", slug: "cable-fly" }] },
+      { name: "Lateral raise", sets: "2–3", reps: "12–20", rest: "60–90 sec", warmup: "1 light set × 15–20", cue: "Lead with your elbows, stop near shoulder height, and keep momentum out of it.", demos: [{ label: "Lateral raise", slug: "lateral-raise" }] },
+      { name: "Cable triceps pushdown", sets: "3", reps: "8–12", rest: "60–90 sec", warmup: "1 light set × 12–15", cue: "Pin your upper arms, extend fully, then control the return.", demos: [{ label: "Pushdown", slug: "pushdown" }] },
     ],
   },
   pull: {
     summary: "4 exercises · back + biceps",
     exercises: [
-      { name: "Bent-over barbell row", sets: "3", reps: "6–10", rest: "2–3 min", cue: "Brace before you pull, keep your torso angle steady, and drive your elbows toward your hips.", demos: [{ label: "Barbell row", slug: "barbell-row" }] },
-      { name: "Lat pulldown or pull-ups", sets: "3", reps: "6–12", rest: "2–3 min", cue: "Start by bringing your shoulders down, then pull your elbows toward your ribs without swinging.", demos: [{ label: "Lat pulldown", slug: "lat-pulldown" }, { label: "Pull-ups", slug: "pullups" }] },
-      { name: "Rear-delt fly or face pull", sets: "2–3", reps: "12–20", rest: "60–90 sec", cue: "Use your rear delts and upper back. Keep your ribs down and avoid shrugging.", demos: [{ label: "Rear-delt fly", slug: "rear-delt-fly" }, { label: "Face pull", slug: "face-pull" }] },
-      { name: "Barbell curl", sets: "3", reps: "8–12", rest: "60–90 sec", cue: "Keep your upper arms quiet, curl without leaning back, and own the lowering phase.", demos: [{ label: "Barbell curl", slug: "barbell-curl" }] },
+      { name: "Bent-over barbell row", sets: "3", reps: "6–10", rest: "2–3 min", warmup: "2–3 ramp sets × 5–8", cue: "Brace before you pull, keep your torso angle steady, and drive your elbows toward your hips.", demos: [{ label: "Barbell row", slug: "barbell-row" }] },
+      { name: "Lat pulldown or pull-ups", sets: "3", reps: "6–12", rest: "2–3 min", warmup: "1 light or assisted set × 8–10", cue: "Start by bringing your shoulders down, then pull your elbows toward your ribs without swinging.", demos: [{ label: "Lat pulldown", slug: "lat-pulldown" }, { label: "Pull-ups", slug: "pullups" }] },
+      { name: "Rear-delt fly or face pull", sets: "2–3", reps: "12–20", rest: "60–90 sec", warmup: "1 light set × 15–20", cue: "Use your rear delts and upper back. Keep your ribs down and avoid shrugging.", demos: [{ label: "Rear-delt fly", slug: "rear-delt-fly" }, { label: "Face pull", slug: "face-pull" }] },
+      { name: "Barbell curl", sets: "3", reps: "8–12", rest: "60–90 sec", warmup: "1 light set × 10–12", cue: "Keep your upper arms quiet, curl without leaning back, and own the lowering phase.", demos: [{ label: "Barbell curl", slug: "barbell-curl" }] },
     ],
   },
   legs: {
     summary: "5 exercises · squat + hinge",
     exercises: [
-      { name: "Back squat", sets: "3", reps: "5–8", rest: "3–5 min", cue: "Brace before descending, keep pressure through your whole foot, and use safeties just below depth.", demos: [{ label: "Back squat", slug: "back-squat" }] },
-      { name: "Conventional deadlift", sets: "2", reps: "4–6", rest: "3–5 min", cue: "Wedge into the bar, push the floor away, and finish tall without leaning back.", demos: [{ label: "Deadlift", slug: "deadlift" }] },
-      { name: "Leg press or Bulgarian split squat", sets: "2–3", reps: "8–12", rest: "2–3 min", cue: "Choose the option you can control through a comfortable range. Keep your knee tracking over your foot.", demos: [{ label: "Leg press", slug: "leg-press" }, { label: "Split squat", slug: "split-squat" }] },
-      { name: "Leg curl", sets: "3", reps: "10–15", rest: "60–90 sec", cue: "Keep your hips anchored, curl through your hamstrings, and lower without letting the stack crash.", demos: [{ label: "Leg curl", slug: "leg-curl" }] },
-      { name: "Calf raise or abdominal work", sets: "2–3", reps: "controlled", rest: "60–90 sec", cue: "For calves, pause at the stretch and top. For abs, choose a movement you can progress cleanly.", demos: [{ label: "Calf raise", slug: "calf-raise" }, { label: "Ab work", slug: "abs" }] },
+      { name: "Back squat", sets: "3", reps: "5–8", rest: "3–5 min", warmup: "3–4 ramp sets", cue: "Brace before descending, keep pressure through your whole foot, and use safeties just below depth.", demos: [{ label: "Back squat", slug: "back-squat" }] },
+      { name: "Conventional deadlift", sets: "2", reps: "4–6", rest: "3–5 min", warmup: "2–3 ramp sets × 3–5", cue: "Wedge into the bar, push the floor away, and finish tall without leaning back.", demos: [{ label: "Deadlift", slug: "deadlift" }] },
+      { name: "Leg press or Bulgarian split squat", sets: "2–3", reps: "8–12", rest: "2–3 min", warmup: "1–2 light sets × 8", cue: "Choose the option you can control through a comfortable range. Keep your knee tracking over your foot.", demos: [{ label: "Leg press", slug: "leg-press" }, { label: "Split squat", slug: "split-squat" }] },
+      { name: "Leg curl", sets: "3", reps: "10–15", rest: "60–90 sec", warmup: "1 light set × 12–15", cue: "Keep your hips anchored, curl through your hamstrings, and lower without letting the stack crash.", demos: [{ label: "Leg curl", slug: "leg-curl" }] },
+      { name: "Calf raise or abdominal work", sets: "2–3", reps: "controlled", rest: "60–90 sec", warmup: "1 easy set × 12–15", cue: "For calves, pause at the stretch and top. For abs, choose a movement you can progress cleanly.", demos: [{ label: "Calf raise", slug: "calf-raise" }, { label: "Ab work", slug: "abs" }] },
     ],
   },
 };
@@ -44,13 +45,21 @@ const weeks: WorkoutKey[][] = [
   ["pull", "legs", "push", "pull", "legs"],
 ];
 
-function DemoStrip({ demo, exercise }: { demo: Demo; exercise: string }) {
+function DemoStrip({ demo, exercise, onOpen }: { demo: Demo; exercise: string; onOpen: (image: LightboxImage) => void }) {
+  const poses = [
+    { src: `./exercises/${demo.slug}-0.jpg`, alt: `${demo.label}: first position` },
+    { src: `./exercises/${demo.slug}-1.jpg`, alt: `${demo.label}: second position` },
+  ];
   return (
     <figure className="demo-strip">
       <div className="poses">
-        <img src={`./exercises/${demo.slug}-0.jpg`} alt={`${demo.label}: first position`} loading="lazy" />
+        <button className="image-button" type="button" onClick={() => onOpen(poses[0])} aria-label={`Enlarge ${poses[0].alt}`}>
+          <img src={poses[0].src} alt={poses[0].alt} loading="lazy" />
+        </button>
         <span aria-hidden="true">→</span>
-        <img src={`./exercises/${demo.slug}-1.jpg`} alt={`${demo.label}: second position`} loading="lazy" />
+        <button className="image-button" type="button" onClick={() => onOpen(poses[1])} aria-label={`Enlarge ${poses[1].alt}`}>
+          <img src={poses[1].src} alt={poses[1].alt} loading="lazy" />
+        </button>
       </div>
       <figcaption>{demo.label}</figcaption>
       <a className="image-source" href="https://github.com/yuhonas/free-exercise-db" target="_blank" rel="noreferrer" aria-label={`Public-domain image source for ${exercise}`}>source</a>
@@ -74,28 +83,28 @@ function Schedule() {
   );
 }
 
-function ExerciseRow({ exercise, index }: { exercise: Exercise; index: number }) {
+function ExerciseRow({ exercise, index, onOpen }: { exercise: Exercise; index: number; onOpen: (image: LightboxImage) => void }) {
   return (
     <article className="exercise-row">
       <div className={`demo-grid ${exercise.demos.length > 1 ? "has-options" : ""}`}>
-        {exercise.demos.map((demo) => <DemoStrip key={demo.slug} demo={demo} exercise={exercise.name} />)}
+        {exercise.demos.map((demo) => <DemoStrip key={demo.slug} demo={demo} exercise={exercise.name} onOpen={onOpen} />)}
       </div>
       <div className="exercise-info">
         <div className="exercise-title"><span>{index + 1}</span><h3>{exercise.name}</h3></div>
         <div className="prescription"><strong>{exercise.sets}</strong><small>sets</small><i>×</i><strong>{exercise.reps}</strong><small>reps</small></div>
         <p className="cue">{exercise.cue}</p>
-        <div className="exercise-meta"><span>Rest: {exercise.rest}</span><span>Start around 2 RIR</span></div>
+        <div className="exercise-meta"><span>Optional warm-up: {exercise.warmup}</span><span>Rest: {exercise.rest}</span><span>Start around 2 RIR</span></div>
       </div>
     </article>
   );
 }
 
-function Workout({ workout }: { workout: WorkoutKey }) {
+function Workout({ workout, onOpen }: { workout: WorkoutKey; onOpen: (image: LightboxImage) => void }) {
   const data = workouts[workout];
   return (
     <section className={`workout ${workout}`} aria-labelledby={`${workout}-title`}>
       <header className="workout-header"><div><h2 id={`${workout}-title`}>{workout}</h2><p>{data.summary}</p></div><span>{data.exercises.length} movements</span></header>
-      <div className="exercise-list">{data.exercises.map((exercise, index) => <ExerciseRow exercise={exercise} index={index} key={exercise.name} />)}</div>
+      <div className="exercise-list">{data.exercises.map((exercise, index) => <ExerciseRow exercise={exercise} index={index} key={exercise.name} onOpen={onOpen} />)}</div>
     </section>
   );
 }
@@ -111,8 +120,34 @@ function Notes() {
   );
 }
 
+function Lightbox({ image, onClose }: { image: LightboxImage | null; onClose: () => void }) {
+  useEffect(() => {
+    if (!image) return;
+    const onKeyDown = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [image, onClose]);
+
+  if (!image) return null;
+  return (
+    <div className="lightbox" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+      <div className="lightbox-dialog" role="dialog" aria-modal="true" aria-label={image.alt}>
+        <button className="lightbox-close" type="button" onClick={onClose} autoFocus aria-label="Close enlarged image">Close <span aria-hidden="true">×</span></button>
+        <img className="lightbox-image" src={image.src} alt={image.alt} />
+        <p>{image.alt}</p>
+      </div>
+    </div>
+  );
+}
+
 function App() {
   const [active, setActive] = useState<WorkoutKey>("push");
+  const [lightbox, setLightbox] = useState<LightboxImage | null>(null);
   return (
     <>
       <header className="app-header"><div><h1>Rolling PPL</h1><p>Chest-prioritized · five weekdays</p></div><a href="#schedule">Schedule</a></header>
@@ -121,10 +156,11 @@ function App() {
         <div className="workout-tabs" role="tablist" aria-label="Choose a workout">
           {(["push", "pull", "legs"] as WorkoutKey[]).map((key) => <button key={key} role="tab" aria-selected={active === key} className={active === key ? `active ${key}` : ""} onClick={() => setActive(key)}>{key}<small>{workouts[key].exercises.length} exercises</small></button>)}
         </div>
-        <Workout workout={active} />
+        <Workout workout={active} onOpen={setLightbox} />
         <Notes />
       </main>
       <footer><p><strong>Rolling PPL</strong> · Keep the sequence; skip the weekly reset.</p><p>Exercise imagery from the public-domain <a href="https://github.com/yuhonas/free-exercise-db" target="_blank" rel="noreferrer">Free Exercise DB</a> (Unlicense). Images are shown in grayscale for consistency.</p></footer>
+      <Lightbox image={lightbox} onClose={() => setLightbox(null)} />
     </>
   );
 }
