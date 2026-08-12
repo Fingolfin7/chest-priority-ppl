@@ -7,6 +7,8 @@ A simple, phone-first, chest-prioritized rolling Push/Pull/Legs workout referenc
 - Complete three-week rolling schedule
 - Three focused workout tabs
 - Gym-readable exercise rows with work sets, optional warm-ups, rest, cues, and click-to-enlarge public-domain photos
+- Device-local work-set history with previous-session context and double-progression suggestions
+- Light and dark themes with a remembered toggle
 - Warm-up, progression, rest, and safety guidance
 - Responsive static build for GitHub Pages
 

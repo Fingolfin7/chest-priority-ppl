@@ -3,9 +3,56 @@ import { createRoot } from "react-dom/client";
 import "./styles.css";
 
 type WorkoutKey = "push" | "pull" | "legs";
+type Theme = "light" | "dark";
 type Demo = { label: string; slug: string };
 type Exercise = { name: string; sets: string; reps: string; rest: string; warmup: string; cue: string; demos: Demo[] };
 type LightboxImage = { src: string; alt: string };
+type SetEntry = { load: string; reps: string };
+type SavedSession = { id: string; savedAt: string; sets: SetEntry[] };
+type HistoryMap = Record<string, SavedSession[]>;
+type DraftMap = Record<string, SetEntry[]>;
+type SaveResult = { ok: boolean; message: string };
+
+const HISTORY_KEY = "rolling-ppl-history-v1";
+const DRAFTS_KEY = "rolling-ppl-drafts-v1";
+const THEME_KEY = "rolling-ppl-theme-v1";
+
+function setRange(value: string) {
+  const values = value.match(/\d+/g)?.map(Number) ?? [1];
+  return { min: values[0], max: values.at(-1) ?? values[0] };
+}
+
+function repRange(value: string) {
+  const values = value.match(/\d+/g)?.map(Number) ?? [];
+  return values.length >= 2 ? { min: values[0], max: values[1] } : null;
+}
+
+function isTopSession(exercise: Exercise, session?: SavedSession) {
+  const range = repRange(exercise.reps);
+  if (!range || !session?.sets.length) return false;
+  return session.sets.every((entry) => Number(entry.reps) >= range.max);
+}
+
+function loadSignature(session?: SavedSession) {
+  return session?.sets.map((entry) => entry.load.trim().toLowerCase() || "bw").join("|") ?? "";
+}
+
+function nextStep(exercise: Exercise, sessions: SavedSession[]) {
+  const latest = sessions[0];
+  const range = repRange(exercise.reps);
+  if (!latest) return "Log this session to get your next target.";
+  if (!range) return "Add reps or difficulty after two fully controlled sessions.";
+  const reps = latest.sets.map((entry) => Number(entry.reps));
+  if (reps.some((value) => !Number.isFinite(value) || value < range.min)) return "Hold or reduce the load until every set is back in range.";
+  if (!isTopSession(exercise, latest)) return "Add reps within the range next time.";
+  const previous = sessions[1];
+  if (isTopSession(exercise, previous) && loadSignature(latest) === loadSignature(previous)) return "Add the smallest available weight next time.";
+  return "Repeat the top-end reps once more, then add weight.";
+}
+
+function formatSession(session: SavedSession) {
+  return session.sets.map((entry) => `${entry.load.trim() || "BW"} × ${entry.reps}`).join(" · ");
+}
 
 const workouts: Record<WorkoutKey, { summary: string; exercises: Exercise[] }> = {
   push: {
@@ -83,7 +130,28 @@ function Schedule() {
   );
 }
 
-function ExerciseRow({ exercise, index, onOpen }: { exercise: Exercise; index: number; onOpen: (image: LightboxImage) => void }) {
+function ExerciseRow({ exercise, index, onOpen, history, draft, onDraftChange, onSave }: {
+  exercise: Exercise;
+  index: number;
+  onOpen: (image: LightboxImage) => void;
+  history: SavedSession[];
+  draft: SetEntry[];
+  onDraftChange: (entries: SetEntry[]) => void;
+  onSave: (exercise: Exercise, entries: SetEntry[]) => SaveResult;
+}) {
+  const [message, setMessage] = useState("");
+  const range = setRange(exercise.sets);
+  const entries = Array.from({ length: range.max }, (_, setIndex) => draft[setIndex] ?? { load: "", reps: "" });
+  const previous = history[0];
+  const updateEntry = (setIndex: number, field: keyof SetEntry, value: string) => {
+    const next = entries.map((entry, entryIndex) => entryIndex === setIndex ? { ...entry, [field]: value } : entry);
+    onDraftChange(next);
+    setMessage("");
+  };
+  const save = () => {
+    const result = onSave(exercise, entries);
+    setMessage(result.message);
+  };
   return (
     <article className="exercise-row">
       <div className={`demo-grid ${exercise.demos.length > 1 ? "has-options" : ""}`}>
@@ -94,17 +162,42 @@ function ExerciseRow({ exercise, index, onOpen }: { exercise: Exercise; index: n
         <div className="prescription"><strong>{exercise.sets}</strong><small>sets</small><i>×</i><strong>{exercise.reps}</strong><small>reps</small></div>
         <p className="cue">{exercise.cue}</p>
         <div className="exercise-meta"><span>Optional warm-up: {exercise.warmup}</span><span>Rest: {exercise.rest}</span><span>Start around 2 RIR</span></div>
+        <section className="set-tracker" aria-label={`Progressive overload log for ${exercise.name}`}>
+          <div className="tracker-heading">
+            <div><h4>Log work sets</h4><p>Warm-up sets stay separate.</p></div>
+            {previous && <div className="previous-session"><span>Previous</span><strong>{formatSession(previous)}</strong></div>}
+          </div>
+          <div className="set-entries">
+            {entries.map((entry, setIndex) => (
+              <div className="set-entry" key={setIndex}>
+                <div className="set-number">Set {setIndex + 1}{setIndex >= range.min && <small>optional</small>}</div>
+                <label><span>Load</span><input value={entry.load} onChange={(event) => updateEntry(setIndex, "load", event.target.value)} inputMode="decimal" maxLength={12} placeholder="kg / BW" aria-label={`${exercise.name} set ${setIndex + 1} load`} /></label>
+                <label><span>Reps</span><input value={entry.reps} onChange={(event) => updateEntry(setIndex, "reps", event.target.value)} type="number" inputMode="numeric" min="0" max="99" placeholder="0" aria-label={`${exercise.name} set ${setIndex + 1} reps`} /></label>
+              </div>
+            ))}
+          </div>
+          <div className="next-step"><span>Next target</span><strong>{nextStep(exercise, history)}</strong></div>
+          <div className="tracker-actions"><button type="button" onClick={save}>Save exercise</button><p className={message.startsWith("Saved") ? "save-message success" : "save-message"} aria-live="polite">{message}</p></div>
+          {history.length > 0 && <details className="history"><summary>History ({history.length})</summary><ol>{history.slice(0, 5).map((session) => <li key={session.id}><time dateTime={session.savedAt}>{new Date(session.savedAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}</time><span>{formatSession(session)}</span></li>)}</ol></details>}
+        </section>
       </div>
     </article>
   );
 }
 
-function Workout({ workout, onOpen }: { workout: WorkoutKey; onOpen: (image: LightboxImage) => void }) {
+function Workout({ workout, onOpen, history, drafts, onDraftChange, onSave }: {
+  workout: WorkoutKey;
+  onOpen: (image: LightboxImage) => void;
+  history: HistoryMap;
+  drafts: DraftMap;
+  onDraftChange: (exerciseName: string, entries: SetEntry[]) => void;
+  onSave: (exercise: Exercise, entries: SetEntry[]) => SaveResult;
+}) {
   const data = workouts[workout];
   return (
     <section className={`workout ${workout}`} aria-labelledby={`${workout}-title`}>
       <header className="workout-header"><div><h2 id={`${workout}-title`}>{workout}</h2><p>{data.summary}</p></div><span>{data.exercises.length} movements</span></header>
-      <div className="exercise-list">{data.exercises.map((exercise, index) => <ExerciseRow exercise={exercise} index={index} key={exercise.name} onOpen={onOpen} />)}</div>
+      <div className="exercise-list">{data.exercises.map((exercise, index) => <ExerciseRow exercise={exercise} index={index} key={exercise.name} onOpen={onOpen} history={history[exercise.name] ?? []} draft={drafts[exercise.name] ?? []} onDraftChange={(entries) => onDraftChange(exercise.name, entries)} onSave={onSave} />)}</div>
     </section>
   );
 }
@@ -148,15 +241,72 @@ function Lightbox({ image, onClose }: { image: LightboxImage | null; onClose: ()
 function App() {
   const [active, setActive] = useState<WorkoutKey>("push");
   const [lightbox, setLightbox] = useState<LightboxImage | null>(null);
+  const [history, setHistory] = useState<HistoryMap>({});
+  const [drafts, setDrafts] = useState<DraftMap>({});
+  const [storageReady, setStorageReady] = useState(false);
+  const [theme, setTheme] = useState<Theme>(() => {
+    const saved = localStorage.getItem(THEME_KEY);
+    if (saved === "light" || saved === "dark") return saved;
+    return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+  });
+
+  useEffect(() => {
+    try {
+      setHistory(JSON.parse(localStorage.getItem(HISTORY_KEY) ?? "{}"));
+      setDrafts(JSON.parse(localStorage.getItem(DRAFTS_KEY) ?? "{}"));
+    } catch {
+      setHistory({});
+      setDrafts({});
+    }
+    setStorageReady(true);
+  }, []);
+
+  useEffect(() => {
+    if (storageReady) localStorage.setItem(HISTORY_KEY, JSON.stringify(history));
+  }, [history, storageReady]);
+
+  useEffect(() => {
+    if (storageReady) localStorage.setItem(DRAFTS_KEY, JSON.stringify(drafts));
+  }, [drafts, storageReady]);
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    document.documentElement.style.colorScheme = theme;
+    localStorage.setItem(THEME_KEY, theme);
+  }, [theme]);
+
+  const updateDraft = (exerciseName: string, entries: SetEntry[]) => {
+    setDrafts((current) => ({ ...current, [exerciseName]: entries }));
+  };
+
+  const saveExercise = (exercise: Exercise, entries: SetEntry[]): SaveResult => {
+    const range = setRange(exercise.sets);
+    const selected = entries.slice(0, range.max).filter((entry, index) => index < range.min || entry.load.trim() || entry.reps.trim());
+    if (selected.slice(0, range.min).some((entry) => !entry.reps.trim())) return { ok: false, message: `Add reps for the ${range.min} required work sets.` };
+    if (selected.some((entry) => !entry.reps.trim() || Number(entry.reps) <= 0)) return { ok: false, message: "Add valid reps or clear the optional set." };
+    const now = new Date();
+    const session: SavedSession = { id: `${now.getTime()}-${exercise.name}`, savedAt: now.toISOString(), sets: selected.map((entry) => ({ load: entry.load.trim(), reps: entry.reps.trim() })) };
+    setHistory((current) => {
+      const existing = current[exercise.name] ?? [];
+      const savedToday = existing[0] && new Date(existing[0].savedAt).toDateString() === now.toDateString();
+      const nextSessions = savedToday ? [{ ...session, id: existing[0].id }, ...existing.slice(1)] : [session, ...existing];
+      return { ...current, [exercise.name]: nextSessions.slice(0, 20) };
+    });
+    return { ok: true, message: "Saved today's work sets." };
+  };
   return (
     <>
-      <header className="app-header"><div><h1>Rolling PPL</h1><p>Chest-prioritized · five weekdays</p></div><a href="#schedule">Schedule</a></header>
+      <header className="app-header">
+        <div><h1>Rolling PPL</h1><p>Chest-prioritized · five weekdays</p></div>
+        <div className="header-actions"><a href="#schedule">Schedule</a><button className="theme-toggle" type="button" onClick={() => setTheme((current) => current === "dark" ? "light" : "dark")} aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} mode`} title={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}><span aria-hidden="true">{theme === "dark" ? "☀" : "☾"}</span></button></div>
+      </header>
       <main>
         <Schedule />
         <div className="workout-tabs" role="tablist" aria-label="Choose a workout">
           {(["push", "pull", "legs"] as WorkoutKey[]).map((key) => <button key={key} role="tab" aria-selected={active === key} className={active === key ? `active ${key}` : ""} onClick={() => setActive(key)}>{key}<small>{workouts[key].exercises.length} exercises</small></button>)}
         </div>
-        <Workout workout={active} onOpen={setLightbox} />
+        <p className="storage-note">Workout entries and history are saved only on this device.</p>
+        <Workout workout={active} onOpen={setLightbox} history={history} drafts={drafts} onDraftChange={updateDraft} onSave={saveExercise} />
         <Notes />
       </main>
       <footer><p><strong>Rolling PPL</strong> · Keep the sequence; skip the weekly reset.</p><p>Exercise imagery from the public-domain <a href="https://github.com/yuhonas/free-exercise-db" target="_blank" rel="noreferrer">Free Exercise DB</a> (Unlicense). Images are shown in grayscale for consistency.</p></footer>
