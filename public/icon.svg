@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title description">
+  <title id="title">Rolling PPL</title>
+  <desc id="description">Three colored segments form a continuous rolling workout sequence.</desc>
+  <rect width="512" height="512" rx="112" fill="#121922"/>
+  <circle cx="256" cy="256" r="139" fill="none" stroke="#2b3541" stroke-width="62"/>
+  <path d="M156 160a141 141 0 0 1 174-21" fill="none" stroke="#5f84f4" stroke-width="62" stroke-linecap="round"/>
+  <path d="M354 169a141 141 0 0 1 11 176" fill="none" stroke="#dc715c" stroke-width="62" stroke-linecap="round"/>
+  <path d="M329 374a141 141 0 0 1-177-37" fill="none" stroke="#42a297" stroke-width="62" stroke-linecap="round"/>
+  <path d="M218 307v-102h42c26 0 42 13 42 34 0 19-14 31-36 33l39 35h-30l-36-34v34zm21-55h20c14 0 22-5 22-14s-8-14-22-14h-20z" fill="#edf2f7"/>
+</svg>

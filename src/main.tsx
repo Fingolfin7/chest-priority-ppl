@@ -12,10 +12,30 @@ type SavedSession = { id: string; savedAt: string; sets: SetEntry[] };
 type HistoryMap = Record<string, SavedSession[]>;
 type DraftMap = Record<string, SetEntry[]>;
 type SaveResult = { ok: boolean; message: string };
+type InstallPromptEvent = Event & {
+  prompt: () => Promise<void>;
+  userChoice: Promise<{ outcome: "accepted" | "dismissed" }>;
+};
 
 const HISTORY_KEY = "rolling-ppl-history-v1";
 const DRAFTS_KEY = "rolling-ppl-drafts-v1";
 const THEME_KEY = "rolling-ppl-theme-v1";
+
+function readStoredMap<T>(key: string): T {
+  try {
+    return JSON.parse(localStorage.getItem(key) ?? "{}") as T;
+  } catch {
+    return {} as T;
+  }
+}
+
+function storeLocal(key: string, value: unknown) {
+  try {
+    localStorage.setItem(key, typeof value === "string" ? value : JSON.stringify(value));
+  } catch {
+    // The app remains usable if private browsing or storage policy blocks persistence.
+  }
+}
 
 function setRange(value: string) {
   const values = value.match(/\d+/g)?.map(Number) ?? [1];
@@ -60,7 +80,7 @@ const workouts: Record<WorkoutKey, { summary: string; exercises: Exercise[] }> =
     exercises: [
       { name: "Barbell bench press", sets: "4", reps: "5–8", rest: "2–4 min", warmup: "3–4 ramp sets", cue: "Set your upper back, plant your feet, and touch the same lower-chest point each rep.", demos: [{ label: "Bench press", slug: "bench" }] },
       { name: "Incline dumbbell bench press", sets: "3", reps: "6–10", rest: "2–3 min", warmup: "1–2 ramp sets × 6–8", cue: "Use a modest incline. Lower with control and press up and slightly inward.", demos: [{ label: "Incline press", slug: "incline-press" }] },
-      { name: "Cable fly", sets: "2", reps: "10–15", rest: "60–90 sec", warmup: "1 light set × 12–15", cue: "Keep a soft elbow and bring your upper arms across your chest without turning it into a press.", demos: [{ label: "Cable fly", slug: "cable-fly" }] },
+      { name: "Chest press machine", sets: "2", reps: "8–12", rest: "90–120 sec", warmup: "1 light ramp set × 8–10", cue: "Set the seat so the handles meet mid-chest. Keep your upper back planted and control the return.", demos: [{ label: "Chest press machine", slug: "chest-press-machine" }] },
       { name: "Lateral raise", sets: "2–3", reps: "12–20", rest: "60–90 sec", warmup: "1 light set × 15–20", cue: "Lead with your elbows, stop near shoulder height, and keep momentum out of it.", demos: [{ label: "Lateral raise", slug: "lateral-raise" }] },
       { name: "Cable triceps pushdown", sets: "3", reps: "8–12", rest: "60–90 sec", warmup: "1 light set × 12–15", cue: "Pin your upper arms, extend fully, then control the return.", demos: [{ label: "Pushdown", slug: "pushdown" }] },
     ],
@@ -208,6 +228,8 @@ function Notes() {
       <h2 id="notes-title">Rules you may need</h2>
       <details><summary>How to progress</summary><p>Add reps within the range while keeping about two clean reps in reserve. When every work set reaches the top of the range cleanly twice, add the smallest available weight. Hold or reduce the load if reps collapse or technique changes.</p></details>
       <details><summary>How to warm up</summary><p>Spend 5–8 minutes raising body temperature. Then use progressively heavier, low-rep ramp sets before the first big lift—for example: bar × 10, about 50% × 5, 70% × 3, 85% × 1. Ramp sets do not count as work sets.</p></details>
+      <details><summary>Why no shoulder press?</summary><p>That is intentional. Bench press and incline press already train the front delts, while lateral raises directly cover the side delts. Leaving out another heavy press keeps shoulder and triceps fatigue lower so chest performance stays the priority. Add a shoulder press only if overhead strength matters enough to accept a longer Push day.</p></details>
+      <details><summary>Why four bench sets?</summary><p>Push appears five times every three weeks, or about 1.67 times per week. Four bench sets therefore average about 6–7 weekly bench sets; together with incline and machine pressing, the plan lands near 15 direct chest sets per week without needing a separate chest day.</p></details>
       <details><summary>Safety and rest</summary><p>Use safeties or a spotter for bench press and squat. Do not normalize joint pain. Controlled, repeatable technique matters more than load. Rest 2–4 minutes for compounds, 3–5 for squats and deadlifts, and 60–120 seconds for accessories.</p></details>
     </section>
   );
@@ -228,9 +250,9 @@ function Lightbox({ image, onClose }: { image: LightboxImage | null; onClose: ()
 
   if (!image) return null;
   return (
-    <div className="lightbox" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+    <div className="lightbox">
       <div className="lightbox-dialog" role="dialog" aria-modal="true" aria-label={image.alt}>
-        <button className="lightbox-close" type="button" onClick={onClose} autoFocus aria-label="Close enlarged image">Close <span aria-hidden="true">×</span></button>
+        <button className="lightbox-close" type="button" onClick={onClose} aria-label="Close enlarged image">Close <span aria-hidden="true">×</span></button>
         <img className="lightbox-image" src={image.src} alt={image.alt} />
         <p>{image.alt}</p>
       </div>
@@ -241,39 +263,51 @@ function Lightbox({ image, onClose }: { image: LightboxImage | null; onClose: ()
 function App() {
   const [active, setActive] = useState<WorkoutKey>("push");
   const [lightbox, setLightbox] = useState<LightboxImage | null>(null);
-  const [history, setHistory] = useState<HistoryMap>({});
-  const [drafts, setDrafts] = useState<DraftMap>({});
-  const [storageReady, setStorageReady] = useState(false);
+  const [history, setHistory] = useState<HistoryMap>(() => readStoredMap<HistoryMap>(HISTORY_KEY));
+  const [drafts, setDrafts] = useState<DraftMap>(() => readStoredMap<DraftMap>(DRAFTS_KEY));
+  const [installPrompt, setInstallPrompt] = useState<InstallPromptEvent | null>(null);
   const [theme, setTheme] = useState<Theme>(() => {
-    const saved = localStorage.getItem(THEME_KEY);
+    let saved: string | null = null;
+    try { saved = localStorage.getItem(THEME_KEY); } catch { /* Use the system theme. */ }
     if (saved === "light" || saved === "dark") return saved;
     return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
   });
 
   useEffect(() => {
-    try {
-      setHistory(JSON.parse(localStorage.getItem(HISTORY_KEY) ?? "{}"));
-      setDrafts(JSON.parse(localStorage.getItem(DRAFTS_KEY) ?? "{}"));
-    } catch {
-      setHistory({});
-      setDrafts({});
-    }
-    setStorageReady(true);
-  }, []);
+    storeLocal(HISTORY_KEY, history);
+  }, [history]);
 
   useEffect(() => {
-    if (storageReady) localStorage.setItem(HISTORY_KEY, JSON.stringify(history));
-  }, [history, storageReady]);
-
-  useEffect(() => {
-    if (storageReady) localStorage.setItem(DRAFTS_KEY, JSON.stringify(drafts));
-  }, [drafts, storageReady]);
+    storeLocal(DRAFTS_KEY, drafts);
+  }, [drafts]);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
     document.documentElement.style.colorScheme = theme;
-    localStorage.setItem(THEME_KEY, theme);
+    document.querySelector('meta[name="theme-color"]')?.setAttribute("content", theme === "dark" ? "#171d24" : "#f2f4f6");
+    storeLocal(THEME_KEY, theme);
   }, [theme]);
+
+  useEffect(() => {
+    const onInstallPrompt = (event: Event) => {
+      event.preventDefault();
+      setInstallPrompt(event as InstallPromptEvent);
+    };
+    const onInstalled = () => setInstallPrompt(null);
+    window.addEventListener("beforeinstallprompt", onInstallPrompt);
+    window.addEventListener("appinstalled", onInstalled);
+    return () => {
+      window.removeEventListener("beforeinstallprompt", onInstallPrompt);
+      window.removeEventListener("appinstalled", onInstalled);
+    };
+  }, []);
+
+  const installApp = async () => {
+    if (!installPrompt) return;
+    await installPrompt.prompt();
+    await installPrompt.userChoice;
+    setInstallPrompt(null);
+  };
 
   const updateDraft = (exerciseName: string, entries: SetEntry[]) => {
     setDrafts((current) => ({ ...current, [exerciseName]: entries }));
@@ -298,7 +332,7 @@ function App() {
     <>
       <header className="app-header">
         <div><h1>Rolling PPL</h1><p>Chest-prioritized · five weekdays</p></div>
-        <div className="header-actions"><a href="#schedule">Schedule</a><button className="theme-toggle" type="button" onClick={() => setTheme((current) => current === "dark" ? "light" : "dark")} aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} mode`} title={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}><span aria-hidden="true">{theme === "dark" ? "☀" : "☾"}</span></button></div>
+        <div className="header-actions"><a href="#schedule">Schedule</a>{installPrompt && <button className="install-button" type="button" onClick={installApp}>Install</button>}<button className="theme-toggle" type="button" onClick={() => setTheme((current) => current === "dark" ? "light" : "dark")} aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} mode`} title={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}><span aria-hidden="true">{theme === "dark" ? "☀" : "☾"}</span></button></div>
       </header>
       <main>
         <Schedule />
@@ -316,3 +350,7 @@ function App() {
 }
 
 createRoot(document.getElementById("root")!).render(<StrictMode><App /></StrictMode>);
+
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => navigator.serviceWorker.register("./sw.js"));
+}
