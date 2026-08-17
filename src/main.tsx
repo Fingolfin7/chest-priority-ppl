@@ -1,6 +1,7 @@
 import { Fragment, StrictMode, useEffect, useState, type ChangeEvent } from "react";
 import { createRoot } from "react-dom/client";
 import { canonicalExerciseName, canonicalizeHistory, type HistoryMap, type SavedSession, type SetEntry } from "./historyMigration";
+import { nextStep, setTarget } from "./progression";
 import "./styles.css";
 
 type WorkoutKey = "push" | "pull" | "legs";
@@ -184,34 +185,6 @@ function setRange(value: string) {
   return { min: values[0], max: values.at(-1) ?? values[0] };
 }
 
-function repRange(value: string) {
-  const values = value.match(/\d+/g)?.map(Number) ?? [];
-  return values.length >= 2 ? { min: values[0], max: values[1] } : null;
-}
-
-function isTopSession(exercise: Exercise, session?: SavedSession) {
-  const range = repRange(exercise.reps);
-  if (!range || !session?.sets.length) return false;
-  return session.sets.every((entry) => Number(entry.reps) >= range.max);
-}
-
-function loadSignature(session?: SavedSession) {
-  return session?.sets.map((entry) => entry.load.trim().toLowerCase() || "bw").join("|") ?? "";
-}
-
-function nextStep(exercise: Exercise, sessions: SavedSession[]) {
-  const latest = sessions[0];
-  const range = repRange(exercise.reps);
-  if (!latest) return "Log this session to get your next target.";
-  if (!range) return "Add reps or difficulty after two fully controlled sessions.";
-  const reps = latest.sets.map((entry) => Number(entry.reps));
-  if (reps.some((value) => !Number.isFinite(value) || value < range.min)) return "Hold or reduce the load until every set is back in range.";
-  if (!isTopSession(exercise, latest)) return "Add reps within the range next time.";
-  const previous = sessions[1];
-  if (isTopSession(exercise, previous) && loadSignature(latest) === loadSignature(previous)) return "Add the smallest available weight next time.";
-  return "Repeat the top-end reps once more, then add weight.";
-}
-
 function formatSession(session: SavedSession) {
   return session.sets.map((entry) => `${entry.load.trim() || "BW"} × ${entry.reps}`).join(" · ");
 }
@@ -330,15 +303,18 @@ function ExerciseRow({ exercise, index, onOpen, history, draft, onDraftChange, o
             {previous && <div className="previous-session"><span>Previous</span><strong>{formatSession(previous)}</strong></div>}
           </div>
           <div className="set-entries">
-            {entries.map((entry, setIndex) => (
-              <div className="set-entry" key={setIndex}>
-                <div className="set-number">Set {setIndex + 1}{setIndex >= range.min && <small>optional</small>}</div>
-                <label><span>Load</span><input value={entry.load} onChange={(event) => updateEntry(setIndex, "load", event.target.value)} inputMode="decimal" maxLength={12} placeholder="kg / BW" aria-label={`${exercise.name} set ${setIndex + 1} load`} /></label>
-                <label><span>Reps</span><input value={entry.reps} onChange={(event) => updateEntry(setIndex, "reps", event.target.value)} type="number" inputMode="numeric" min="0" max="99" placeholder="0" aria-label={`${exercise.name} set ${setIndex + 1} reps`} /></label>
-              </div>
-            ))}
+            {entries.map((entry, setIndex) => {
+              const target = setTarget(exercise.reps, history, setIndex);
+              return (
+                <div className="set-entry" key={setIndex}>
+                  <div className="set-number">Set {setIndex + 1}{setIndex >= range.min && <small>optional</small>}</div>
+                  <label><span>Load</span><input className={target ? "has-target" : ""} value={entry.load} onChange={(event) => updateEntry(setIndex, "load", event.target.value)} inputMode="decimal" maxLength={12} placeholder={target?.load ?? "kg / BW"} aria-label={`${exercise.name} set ${setIndex + 1} load${target ? `, target ${target.load}` : ""}`} /></label>
+                  <label><span>Reps</span><input className={target ? "has-target" : ""} value={entry.reps} onChange={(event) => updateEntry(setIndex, "reps", event.target.value)} type="number" inputMode="numeric" min="0" max="99" placeholder={target?.reps ?? "0"} aria-label={`${exercise.name} set ${setIndex + 1} reps${target ? `, target ${target.reps}` : ""}`} /></label>
+                </div>
+              );
+            })}
           </div>
-          <div className="next-step"><span>Next target</span><strong>{nextStep(exercise, history)}</strong></div>
+          <div className="next-step"><span>Next target</span><strong>{nextStep(exercise.reps, history)}</strong></div>
           <div className="tracker-actions"><button type="button" onClick={save}>Save exercise</button><p className={message.startsWith("Saved") ? "save-message success" : "save-message"} aria-live="polite">{message}</p></div>
           {history.length > 0 && <details className="history"><summary>History ({history.length})</summary><ol>{history.slice(0, 5).map((session) => <li key={session.id}><time dateTime={session.savedAt}>{new Date(session.savedAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}</time><span>{formatSession(session)}</span></li>)}</ol></details>}
         </section>
