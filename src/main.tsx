@@ -1,5 +1,6 @@
 import { Fragment, StrictMode, useEffect, useState, type ChangeEvent } from "react";
 import { createRoot } from "react-dom/client";
+import { canonicalExerciseName, canonicalizeHistory, type HistoryMap, type SavedSession, type SetEntry } from "./historyMigration";
 import "./styles.css";
 
 type WorkoutKey = "push" | "pull" | "legs";
@@ -7,9 +8,6 @@ type Theme = "light" | "dark";
 type Demo = { label: string; slug: string };
 type Exercise = { name: string; sets: string; reps: string; rest: string; warmup: string; cue: string; priority: "must" | "optional"; demos: Demo[] };
 type LightboxImage = { src: string; alt: string };
-type SetEntry = { load: string; reps: string };
-type SavedSession = { id: string; savedAt: string; sets: SetEntry[] };
-type HistoryMap = Record<string, SavedSession[]>;
 type DraftMap = Record<string, SetEntry[]>;
 type SaveResult = { ok: boolean; message: string };
 type ExportFormat = "json" | "csv";
@@ -100,7 +98,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function normalizeSession(value: unknown, position: number): ExportSession {
   if (!isRecord(value)) throw new Error(`Session ${position} is not an object.`);
-  const exercise = typeof value.exercise === "string" ? value.exercise.trim() : "";
+  const exercise = typeof value.exercise === "string" ? canonicalExerciseName(value.exercise) : "";
   const sessionId = typeof value.sessionId === "string" ? value.sessionId.trim() : "";
   const performedAt = typeof value.performedAt === "string" ? value.performedAt.trim() : "";
   if (!exercise) throw new Error(`Session ${position} has no exercise name.`);
@@ -418,7 +416,7 @@ function Lightbox({ image, onClose }: { image: LightboxImage | null; onClose: ()
 function App() {
   const [active, setActive] = useState<WorkoutKey>("push");
   const [lightbox, setLightbox] = useState<LightboxImage | null>(null);
-  const [history, setHistory] = useState<HistoryMap>(() => readStoredMap<HistoryMap>(HISTORY_KEY));
+  const [history, setHistory] = useState<HistoryMap>(() => canonicalizeHistory(readStoredMap<HistoryMap>(HISTORY_KEY)));
   const [drafts, setDrafts] = useState<DraftMap>(() => readStoredMap<DraftMap>(DRAFTS_KEY));
   const [installPrompt, setInstallPrompt] = useState<InstallPromptEvent | null>(null);
   const [importResult, setImportResult] = useState<ImportResult>(null);
