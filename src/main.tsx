@@ -1,4 +1,4 @@
-import { Fragment, StrictMode, useEffect, useState } from "react";
+import { Fragment, StrictMode, useEffect, useState, type ChangeEvent } from "react";
 import { createRoot } from "react-dom/client";
 import "./styles.css";
 
@@ -12,6 +12,9 @@ type SavedSession = { id: string; savedAt: string; sets: SetEntry[] };
 type HistoryMap = Record<string, SavedSession[]>;
 type DraftMap = Record<string, SetEntry[]>;
 type SaveResult = { ok: boolean; message: string };
+type ExportFormat = "json" | "csv";
+type ExportSession = { exercise: string; sessionId: string; performedAt: string; sets: Array<SetEntry & { set: number }> };
+type ImportResult = { kind: "success" | "error"; message: string } | null;
 type InstallPromptEvent = Event & {
   prompt: () => Promise<void>;
   userChoice: Promise<{ outcome: "accepted" | "dismissed" }>;
@@ -35,6 +38,147 @@ function storeLocal(key: string, value: unknown) {
   } catch {
     // The app remains usable if private browsing or storage policy blocks persistence.
   }
+}
+
+function exportSessions(history: HistoryMap): ExportSession[] {
+  return Object.entries(history)
+    .flatMap(([exercise, sessions]) => sessions.map((session) => ({
+      exercise,
+      sessionId: session.id,
+      performedAt: session.savedAt,
+      sets: session.sets.map((set, index) => ({ set: index + 1, ...set })),
+    })))
+    .sort((left, right) => right.performedAt.localeCompare(left.performedAt));
+}
+
+function csvCell(value: string | number) {
+  const text = String(value);
+  const spreadsheetSafe = /^[=+\-@]/.test(text) ? `'${text}` : text;
+  return `"${spreadsheetSafe.replaceAll('"', '""')}"`;
+}
+
+function downloadHistory(history: HistoryMap, format: ExportFormat) {
+  const sessions = exportSessions(history);
+  const now = new Date();
+  const dateStamp = now.toISOString().slice(0, 10);
+  let content: string;
+  let mimeType: string;
+
+  if (format === "json") {
+    content = JSON.stringify({ schemaVersion: 1, app: "Rolling PPL", exportedAt: now.toISOString(), sessions }, null, 2);
+    mimeType = "application/json;charset=utf-8";
+  } else {
+    const rows = sessions.flatMap((session) => session.sets.map((set) => [
+      session.exercise,
+      session.performedAt.slice(0, 10),
+      session.performedAt,
+      session.sessionId,
+      set.set,
+      set.load || "BW",
+      set.reps,
+    ]));
+    content = `\uFEFF${[
+      ["exercise", "session_date", "session_timestamp", "session_id", "set_number", "load", "reps"],
+      ...rows,
+    ].map((row) => row.map(csvCell).join(",")).join("\r\n")}`;
+    mimeType = "text/csv;charset=utf-8";
+  }
+
+  const url = URL.createObjectURL(new Blob([content], { type: mimeType }));
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `rolling-ppl-history-${dateStamp}.${format}`;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function normalizeSession(value: unknown, position: number): ExportSession {
+  if (!isRecord(value)) throw new Error(`Session ${position} is not an object.`);
+  const exercise = typeof value.exercise === "string" ? value.exercise.trim() : "";
+  const sessionId = typeof value.sessionId === "string" ? value.sessionId.trim() : "";
+  const performedAt = typeof value.performedAt === "string" ? value.performedAt.trim() : "";
+  if (!exercise) throw new Error(`Session ${position} has no exercise name.`);
+  if (!sessionId) throw new Error(`Session ${position} has no session ID.`);
+  if (!performedAt || Number.isNaN(Date.parse(performedAt))) throw new Error(`Session ${position} has an invalid timestamp.`);
+  if (!Array.isArray(value.sets) || value.sets.length === 0) throw new Error(`Session ${position} has no work sets.`);
+  const sets = value.sets.map((rawSet, index) => {
+    if (!isRecord(rawSet)) throw new Error(`Session ${position}, set ${index + 1} is invalid.`);
+    const load = rawSet.load === undefined || rawSet.load === null ? "" : String(rawSet.load).trim();
+    const reps = rawSet.reps === undefined || rawSet.reps === null ? "" : String(rawSet.reps).trim();
+    const set = Number(rawSet.set ?? index + 1);
+    if (!Number.isInteger(set) || set < 1) throw new Error(`Session ${position} has an invalid set number.`);
+    if (!reps || !Number.isFinite(Number(reps)) || Number(reps) <= 0) throw new Error(`Session ${position}, set ${set} has invalid reps.`);
+    return { set, load, reps };
+  }).sort((left, right) => left.set - right.set);
+  return { exercise, sessionId, performedAt: new Date(performedAt).toISOString(), sets };
+}
+
+function parseJsonSessions(text: string) {
+  let value: unknown;
+  try {
+    value = JSON.parse(text);
+  } catch {
+    throw new Error("The JSON file is not valid.");
+  }
+  if (!isRecord(value) || !Array.isArray(value.sessions)) throw new Error("This is not a Rolling PPL JSON export.");
+  if (value.sessions.length === 0) throw new Error("The export contains no sessions.");
+  return value.sessions.map((session, index) => normalizeSession(session, index + 1));
+}
+
+function parseCsvRows(text: string) {
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let cell = "";
+  let quoted = false;
+  for (let index = 0; index < text.length; index += 1) {
+    const character = text[index];
+    if (quoted) {
+      if (character === '"' && text[index + 1] === '"') { cell += '"'; index += 1; }
+      else if (character === '"') quoted = false;
+      else cell += character;
+    } else if (character === '"') quoted = true;
+    else if (character === ",") { row.push(cell); cell = ""; }
+    else if (character === "\n") { row.push(cell.replace(/\r$/, "")); rows.push(row); row = []; cell = ""; }
+    else cell += character;
+  }
+  if (quoted) throw new Error("The CSV file has an unclosed quoted field.");
+  if (cell || row.length) { row.push(cell.replace(/\r$/, "")); rows.push(row); }
+  return rows;
+}
+
+function parseCsvSessions(text: string) {
+  const rows = parseCsvRows(text.replace(/^\uFEFF/, ""));
+  const header = rows.shift()?.map((value) => value.trim()) ?? [];
+  const required = ["exercise", "session_timestamp", "session_id", "set_number", "load", "reps"];
+  const columns = Object.fromEntries(required.map((name) => [name, header.indexOf(name)]));
+  if (required.some((name) => columns[name] < 0)) throw new Error("This is not a Rolling PPL CSV export.");
+  const grouped = new Map<string, ExportSession>();
+  rows.filter((row) => row.some((value) => value.trim())).forEach((row, rowIndex) => {
+    const get = (name: string) => (row[columns[name]] ?? "").trim();
+    const exercise = get("exercise");
+    const sessionId = get("session_id");
+    const performedAt = get("session_timestamp");
+    const set = Number(get("set_number"));
+    const reps = get("reps");
+    if (!exercise || !sessionId) throw new Error(`CSV row ${rowIndex + 2} is missing an exercise or session ID.`);
+    if (!performedAt || Number.isNaN(Date.parse(performedAt))) throw new Error(`CSV row ${rowIndex + 2} has an invalid timestamp.`);
+    if (!Number.isInteger(set) || set < 1) throw new Error(`CSV row ${rowIndex + 2} has an invalid set number.`);
+    if (!reps || !Number.isFinite(Number(reps)) || Number(reps) <= 0) throw new Error(`CSV row ${rowIndex + 2} has invalid reps.`);
+    const key = `${exercise}\u0000${sessionId}`;
+    const existing = grouped.get(key);
+    if (existing && new Date(performedAt).toISOString() !== existing.performedAt) throw new Error(`CSV row ${rowIndex + 2} conflicts with an earlier session timestamp.`);
+    const session = existing ?? { exercise, sessionId, performedAt: new Date(performedAt).toISOString(), sets: [] };
+    session.sets.push({ set, load: get("load"), reps });
+    grouped.set(key, session);
+  });
+  if (grouped.size === 0) throw new Error("The export contains no sessions.");
+  return Array.from(grouped.values()).map((session, index) => normalizeSession(session, index + 1));
 }
 
 function setRange(value: string) {
@@ -277,6 +421,7 @@ function App() {
   const [history, setHistory] = useState<HistoryMap>(() => readStoredMap<HistoryMap>(HISTORY_KEY));
   const [drafts, setDrafts] = useState<DraftMap>(() => readStoredMap<DraftMap>(DRAFTS_KEY));
   const [installPrompt, setInstallPrompt] = useState<InstallPromptEvent | null>(null);
+  const [importResult, setImportResult] = useState<ImportResult>(null);
   const [theme, setTheme] = useState<Theme>(() => {
     let saved: string | null = null;
     try { saved = localStorage.getItem(THEME_KEY); } catch { /* Use the system theme. */ }
@@ -339,18 +484,62 @@ function App() {
     });
     return { ok: true, message: "Saved today's work sets." };
   };
+  const hasHistory = Object.values(history).some((sessions) => sessions.length > 0);
+  const exportHistory = (format: ExportFormat, button: HTMLButtonElement) => {
+    downloadHistory(history, format);
+    button.closest("details")?.removeAttribute("open");
+  };
+  const importHistory = async (event: ChangeEvent<HTMLInputElement>) => {
+    const input = event.currentTarget;
+    const file = input.files?.[0];
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const sessions = file.name.toLowerCase().endsWith(".csv") ? parseCsvSessions(text) : parseJsonSessions(text);
+      setHistory((current) => {
+        const next: HistoryMap = { ...current };
+        sessions.forEach((session) => {
+          const restored: SavedSession = { id: session.sessionId, savedAt: session.performedAt, sets: session.sets.map(({ load, reps }) => ({ load, reps })) };
+          const byId = new Map((next[session.exercise] ?? []).map((saved) => [saved.id, saved]));
+          byId.set(restored.id, restored);
+          next[session.exercise] = Array.from(byId.values()).sort((left, right) => right.savedAt.localeCompare(left.savedAt)).slice(0, 20);
+        });
+        return next;
+      });
+      setImportResult({ kind: "success", message: `Imported ${sessions.length} session${sessions.length === 1 ? "" : "s"}.` });
+    } catch (error) {
+      setImportResult({ kind: "error", message: error instanceof Error ? error.message : "The file could not be read." });
+    } finally {
+      input.value = "";
+    }
+  };
   return (
     <>
       <header className="app-header">
         <div><h1>Rolling PPL</h1><p>Chest-prioritized · five weekdays</p></div>
-        <div className="header-actions"><a href="#schedule">Schedule</a>{installPrompt && <button className="install-button" type="button" onClick={installApp}>Install</button>}<button className="theme-toggle" type="button" onClick={() => setTheme((current) => current === "dark" ? "light" : "dark")} aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} mode`} title={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}><span aria-hidden="true">{theme === "dark" ? "☀" : "☾"}</span></button></div>
+        <div className="header-actions">
+          <a href="#schedule">Schedule</a>
+          <details className="export-menu">
+            <summary aria-label="Export or import workout history">Export</summary>
+            <div className="export-panel">
+              <span>Workout history</span>
+              <button type="button" disabled={!hasHistory} onClick={(event) => exportHistory("json", event.currentTarget)}>JSON <small>Full backup</small></button>
+              <button type="button" disabled={!hasHistory} onClick={(event) => exportHistory("csv", event.currentTarget)}>CSV <small>Spreadsheet</small></button>
+              <div className="export-separator" />
+              <label className="import-button">Import <small>JSON or CSV</small><input className="file-input" type="file" accept=".json,.csv,application/json,text/csv" onChange={importHistory} /></label>
+              {importResult ? <p className={`import-result ${importResult.kind}`} role="status">{importResult.message}</p> : !hasHistory && <p>Save an exercise or import a backup.</p>}
+            </div>
+          </details>
+          {installPrompt && <button className="install-button" type="button" onClick={installApp}>Install</button>}
+          <button className="theme-toggle" type="button" onClick={() => setTheme((current) => current === "dark" ? "light" : "dark")} aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} mode`} title={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}><span aria-hidden="true">{theme === "dark" ? "☀" : "☾"}</span></button>
+        </div>
       </header>
       <main>
         <Schedule />
         <div className="workout-tabs" role="tablist" aria-label="Choose a workout">
           {(["push", "pull", "legs"] as WorkoutKey[]).map((key) => <button key={key} role="tab" aria-selected={active === key} className={active === key ? `active ${key}` : ""} onClick={() => setActive(key)}>{key}<small>{workouts[key].exercises.length} exercises</small></button>)}
         </div>
-        <p className="storage-note">Workout entries and history are saved only on this device.</p>
+        <p className="storage-note">Workout entries and history are saved only on this device. Use Export to keep a copy.</p>
         <Workout workout={active} onOpen={setLightbox} history={history} drafts={drafts} onDraftChange={updateDraft} onSave={saveExercise} />
         <Notes />
       </main>
