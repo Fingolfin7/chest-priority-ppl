@@ -78,7 +78,7 @@ const workouts: Record<WorkoutKey, { summary: string; exercises: Exercise[] }> =
   push: {
     summary: "5 exercises · chest priority",
     exercises: [
-      { name: "Barbell bench press", sets: "4", reps: "5–8", rest: "2–4 min", warmup: "3–4 ramp sets", cue: "Set your upper back, plant your feet, and touch the same lower-chest point each rep.", priority: "must", demos: [{ label: "Bench press", slug: "bench" }] },
+      { name: "Barbell bench press", sets: "3–4", reps: "5–8", rest: "2–4 min", warmup: "3–4 ramp sets", cue: "Set your upper back, plant your feet, and touch the same lower-chest point each rep. The fourth work set is optional.", priority: "must", demos: [{ label: "Bench press", slug: "bench" }] },
       { name: "Incline dumbbell bench press", sets: "3", reps: "6–10", rest: "2–3 min", warmup: "1–2 ramp sets × 6–8", cue: "Use a modest incline. Lower with control and press up and slightly inward.", priority: "must", demos: [{ label: "Incline press", slug: "incline-press" }] },
       { name: "Lateral raise", sets: "2–3", reps: "12–20", rest: "60–90 sec", warmup: "1 light set × 15–20", cue: "Lead with your elbows, stop near shoulder height, and keep momentum out of it.", priority: "must", demos: [{ label: "Lateral raise", slug: "lateral-raise" }] },
       { name: "Cable triceps pushdown", sets: "3", reps: "8–12", rest: "60–90 sec", warmup: "1 light set × 12–15", cue: "Pin your upper arms, extend fully, then control the return.", priority: "must", demos: [{ label: "Pushdown", slug: "pushdown" }] },
@@ -90,7 +90,7 @@ const workouts: Record<WorkoutKey, { summary: string; exercises: Exercise[] }> =
     exercises: [
       { name: "Bent-over barbell row", sets: "3", reps: "6–10", rest: "2–3 min", warmup: "2–3 ramp sets × 5–8", cue: "Brace before you pull, keep your torso angle steady, and drive your elbows toward your hips.", priority: "must", demos: [{ label: "Barbell row", slug: "barbell-row" }] },
       { name: "Lat pulldown or pull-ups", sets: "3", reps: "6–12", rest: "2–3 min", warmup: "1 light or assisted set × 8–10", cue: "Start by bringing your shoulders down, then pull your elbows toward your ribs without swinging.", priority: "must", demos: [{ label: "Lat pulldown", slug: "lat-pulldown" }, { label: "Pull-ups", slug: "pullups" }] },
-      { name: "Rear-delt fly or face pull", sets: "2–3", reps: "12–20", rest: "60–90 sec", warmup: "1 light set × 15–20", cue: "Use your rear delts and upper back. Keep your ribs down and avoid shrugging.", priority: "must", demos: [{ label: "Rear-delt fly", slug: "rear-delt-fly" }, { label: "Face pull", slug: "face-pull" }] },
+      { name: "Rear-delt fly", sets: "2–3", reps: "12–20", rest: "60–90 sec", warmup: "1 light set × 15–20", cue: "Use your rear delts and upper back. Keep your ribs down and avoid shrugging.", priority: "must", demos: [{ label: "Rear-delt fly", slug: "rear-delt-fly" }] },
       { name: "Barbell curl", sets: "3", reps: "8–12", rest: "60–90 sec", warmup: "1 light set × 10–12", cue: "Keep your upper arms quiet, curl without leaning back, and own the lowering phase.", priority: "must", demos: [{ label: "Barbell curl", slug: "barbell-curl" }] },
     ],
   },
@@ -240,7 +240,7 @@ function Notes() {
       <details><summary>How to progress</summary><p>Add reps within the range while keeping about two clean reps in reserve. When every work set reaches the top of the range cleanly twice, add the smallest available weight. Hold or reduce the load if reps collapse or technique changes.</p></details>
       <details><summary>How to warm up</summary><p>Spend 5–8 minutes raising body temperature. Then use progressively heavier, low-rep ramp sets before the first big lift—for example: bar × 10, about 50% × 5, 70% × 3, 85% × 1. Ramp sets do not count as work sets.</p></details>
       <details><summary>Why no shoulder press?</summary><p>That is intentional. Bench press and incline press already train the front delts, while lateral raises directly cover the side delts. Leaving out another heavy press keeps shoulder and triceps fatigue lower so chest performance stays the priority. Add a shoulder press only if overhead strength matters enough to accept a longer Push day.</p></details>
-      <details><summary>Why four bench sets?</summary><p>Push appears five times every three weeks, or about 1.67 times per week. Four bench sets therefore average about 6–7 weekly bench sets; together with incline and optional machine pressing, the plan ranges from roughly 12 to 15 direct chest sets per week.</p></details>
+      <details><summary>Why an optional fourth bench set?</summary><p>Three work sets keep the must-do session manageable. Add the fourth when time, recovery, and performance are good; across the rolling schedule, that lets you increase chest volume without making every Push day longer.</p></details>
       <details><summary>Safety and rest</summary><p>Use safeties or a spotter for bench press and squat. Do not normalize joint pain. Controlled, repeatable technique matters more than load. Rest 2–4 minutes for compounds, 3–5 for squats and deadlifts, and 60–120 seconds for accessories.</p></details>
     </section>
   );
