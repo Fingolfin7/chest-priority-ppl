@@ -308,7 +308,7 @@ function ExerciseRow({ exercise, index, onOpen, history, draft, onDraftChange, o
           </div>
           <div className="set-entries">
             {entries.map((entry, setIndex) => {
-              const target = setTarget(exercise.reps, history, setIndex);
+              const target = setTarget(exercise.reps, history, setIndex, range.min);
               return (
                 <div className="set-entry" key={setIndex}>
                   <div className="set-number">Set {setIndex + 1}{setIndex >= range.min && <small>optional</small>}</div>
@@ -318,7 +318,7 @@ function ExerciseRow({ exercise, index, onOpen, history, draft, onDraftChange, o
               );
             })}
           </div>
-          <div className="next-step"><span>Next target</span><strong>{nextStep(exercise.reps, history)}</strong></div>
+          <div className="next-step"><span>Next target</span><strong>{nextStep(exercise.reps, history, range.min)}</strong></div>
           <div className="tracker-actions"><button type="button" onClick={save}>Save exercise</button><p className={message.startsWith("Saved") ? "save-message success" : "save-message"} aria-live="polite">{message}</p></div>
           {history.length > 0 && <details className="history"><summary>History ({history.length})</summary><ol>{history.slice(0, 5).map((session) => <li key={session.id}><time dateTime={session.savedAt}>{new Date(session.savedAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}</time><span>{formatSession(session)}</span></li>)}</ol></details>}
         </section>
