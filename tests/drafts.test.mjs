@@ -23,3 +23,12 @@ test("preserves an unfinished draft that differs from saved history", () => {
   };
   assert.deepEqual(pruneCompletedDrafts(drafts, saved), drafts);
 });
+
+test("moves an unfinished legacy ab draft to the chosen machine card", () => {
+  const drafts = {
+    "Calf raise or abdominal work": [{ load: "35", reps: "12" }],
+  };
+  assert.deepEqual(pruneCompletedDrafts(drafts, {}), {
+    "Ab crunch machine": [{ load: "35", reps: "12" }],
+  });
+});

@@ -1,4 +1,4 @@
-import type { HistoryMap, SetEntry } from "./historyMigration";
+import { canonicalExerciseName, type HistoryMap, type SetEntry } from "./historyMigration.ts";
 
 export type DraftMap = Record<string, SetEntry[]>;
 
@@ -13,7 +13,12 @@ function matchesLatestSession(draft: SetEntry[], history: HistoryMap[string]) {
 }
 
 export function pruneCompletedDrafts(drafts: DraftMap, history: HistoryMap): DraftMap {
-  return Object.fromEntries(
-    Object.entries(drafts).filter(([exercise, draft]) => Array.isArray(draft) && draft.length > 0 && !matchesLatestSession(draft, history[exercise])),
-  );
+  const pruned: DraftMap = {};
+  Object.entries(drafts).forEach(([storedExercise, draft]) => {
+    if (!Array.isArray(draft) || draft.length === 0) return;
+    const exercise = canonicalExerciseName(storedExercise);
+    if (matchesLatestSession(draft, history[exercise])) return;
+    if (!(exercise in pruned) || storedExercise === exercise) pruned[exercise] = draft;
+  });
+  return pruned;
 }

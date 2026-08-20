@@ -1,8 +1,8 @@
-const CACHE_NAME = "rolling-ppl-v14";
+const CACHE_NAME = "rolling-ppl-v15";
 const EXERCISES = [
   "bench", "incline-press", "chest-press-machine", "lateral-raise", "pushdown", "overhead-db-extension",
   "barbell-row", "lat-pulldown", "pullups", "rear-delt-fly", "barbell-curl", "hammer-curl",
-  "back-squat", "deadlift", "leg-press", "split-squat", "leg-curl", "calf-raise", "abs",
+  "back-squat", "deadlift", "leg-press", "split-squat", "leg-curl", "calf-raise", "ab-crunch-machine",
 ];
 const APP_SHELL = [
   "./",

@@ -4,6 +4,7 @@ export type HistoryMap = Record<string, SavedSession[]>;
 
 const EXERCISE_NAME_ALIASES: Record<string, string> = {
   "Rear-delt fly or face pull": "Rear-delt fly",
+  "Calf raise or abdominal work": "Ab crunch machine",
 };
 
 export function canonicalExerciseName(name: string) {

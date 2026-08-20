@@ -7,6 +7,10 @@ test("maps the former rear-delt exercise name to the current card", () => {
   assert.equal(canonicalExerciseName("Rear-delt fly"), "Rear-delt fly");
 });
 
+test("moves the former combined calf and ab history to the chosen ab machine card", () => {
+  assert.equal(canonicalExerciseName("Calf raise or abdominal work"), "Ab crunch machine");
+});
+
 test("merges legacy history into the current exercise without duplicates", () => {
   const shared = { id: "session-1", savedAt: "2026-08-13T06:30:54.413Z", sets: [{ load: "10", reps: "10" }] };
   const migrated = canonicalizeHistory({
