@@ -1,6 +1,7 @@
 import { Fragment, StrictMode, useEffect, useState, type ChangeEvent } from "react";
 import { createRoot } from "react-dom/client";
 import { canonicalExerciseName, canonicalizeHistory, type HistoryMap, type SavedSession, type SetEntry } from "./historyMigration";
+import { pruneCompletedDrafts, type DraftMap } from "./drafts";
 import { nextStep, setTarget } from "./progression";
 import "./styles.css";
 
@@ -9,7 +10,6 @@ type Theme = "light" | "dark";
 type Demo = { label: string; slug: string };
 type Exercise = { name: string; sets: string; reps: string; rest: string; warmup: string; cue: string; priority: "must" | "optional"; demos: Demo[] };
 type LightboxImage = { src: string; alt: string };
-type DraftMap = Record<string, SetEntry[]>;
 type SaveResult = { ok: boolean; message: string };
 type ExportFormat = "json" | "csv";
 type ExportSession = { exercise: string; sessionId: string; performedAt: string; sets: Array<SetEntry & { set: number }> };
@@ -287,6 +287,7 @@ function ExerciseRow({ exercise, index, onOpen, history, draft, onDraftChange, o
   };
   const save = () => {
     const result = onSave(exercise, entries);
+    if (result.ok) onDraftChange([]);
     setMessage(result.message);
   };
   return (
@@ -395,7 +396,7 @@ function App() {
   const [active, setActive] = useState<WorkoutKey>("push");
   const [lightbox, setLightbox] = useState<LightboxImage | null>(null);
   const [history, setHistory] = useState<HistoryMap>(() => canonicalizeHistory(readStoredMap<HistoryMap>(HISTORY_KEY)));
-  const [drafts, setDrafts] = useState<DraftMap>(() => readStoredMap<DraftMap>(DRAFTS_KEY));
+  const [drafts, setDrafts] = useState<DraftMap>(() => pruneCompletedDrafts(readStoredMap<DraftMap>(DRAFTS_KEY), history));
   const [installPrompt, setInstallPrompt] = useState<InstallPromptEvent | null>(null);
   const [importResult, setImportResult] = useState<ImportResult>(null);
   const [theme, setTheme] = useState<Theme>(() => {
@@ -442,7 +443,12 @@ function App() {
   };
 
   const updateDraft = (exerciseName: string, entries: SetEntry[]) => {
-    setDrafts((current) => ({ ...current, [exerciseName]: entries }));
+    setDrafts((current) => {
+      const next = { ...current };
+      if (entries.length === 0) delete next[exerciseName];
+      else next[exerciseName] = entries;
+      return next;
+    });
   };
 
   const saveExercise = (exercise: Exercise, entries: SetEntry[]): SaveResult => {
