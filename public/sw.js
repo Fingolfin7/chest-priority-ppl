@@ -1,4 +1,4 @@
-const CACHE_NAME = "rolling-ppl-v15";
+const CACHE_NAME = "rolling-ppl-v16";
 const EXERCISES = [
   "bench", "incline-press", "chest-press-machine", "lateral-raise", "pushdown", "overhead-db-extension",
   "barbell-row", "lat-pulldown", "pullups", "rear-delt-fly", "barbell-curl", "hammer-curl",
@@ -16,12 +16,12 @@ const APP_SHELL = [
 self.addEventListener("install", (event) => {
   event.waitUntil((async () => {
     const cache = await caches.open(CACHE_NAME);
-    await cache.addAll(APP_SHELL);
+    await cache.addAll(APP_SHELL.map((url) => new Request(url, { cache: "reload" })));
     const page = await cache.match("./");
     if (page) {
       const html = await page.clone().text();
       const builtAssets = [...html.matchAll(/(?:src|href)="(\.\/assets\/[^"]+)"/g)].map((match) => match[1]);
-      await cache.addAll(builtAssets);
+      await cache.addAll(builtAssets.map((url) => new Request(url, { cache: "reload" })));
     }
     await self.skipWaiting();
   })());
@@ -32,24 +32,33 @@ self.addEventListener("activate", (event) => {
     const names = await caches.keys();
     await Promise.all(names.filter((name) => name !== CACHE_NAME).map((name) => caches.delete(name)));
     await self.clients.claim();
+    const openClients = await self.clients.matchAll({ type: "window" });
+    await Promise.all(openClients.map((client) => client.navigate(client.url).catch(() => null)));
   })());
 });
 
 self.addEventListener("fetch", (event) => {
   if (event.request.method !== "GET" || new URL(event.request.url).origin !== self.location.origin) return;
   event.respondWith((async () => {
+    if (event.request.mode === "navigate") {
+      try {
+        const response = await fetch(event.request);
+        if (response.ok) {
+          const cache = await caches.open(CACHE_NAME);
+          await cache.put("./", response.clone());
+        }
+        return response;
+      } catch {
+        return await caches.match("./") ?? Response.error();
+      }
+    }
     const cached = await caches.match(event.request);
     if (cached) return cached;
-    try {
-      const response = await fetch(event.request);
-      if (response.ok) {
-        const cache = await caches.open(CACHE_NAME);
-        await cache.put(event.request, response.clone());
-      }
-      return response;
-    } catch (error) {
-      if (event.request.mode === "navigate") return caches.match("./");
-      throw error;
+    const response = await fetch(event.request);
+    if (response.ok) {
+      const cache = await caches.open(CACHE_NAME);
+      await cache.put(event.request, response.clone());
     }
+    return response;
   })());
 });
