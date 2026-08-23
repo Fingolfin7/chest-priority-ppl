@@ -1,4 +1,4 @@
-import { Fragment, StrictMode, useEffect, useMemo, useState, type ChangeEvent, type FormEvent } from "react";
+import { Fragment, StrictMode, useEffect, useMemo, useState, type ChangeEvent, type FormEvent, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import {
   DEFAULT_AUTUMN_URL, defaultAutumnSettings, getAutumnAccount, listAutumnProjects,
@@ -7,6 +7,7 @@ import {
 import { pruneCompletedDrafts, type DraftMap } from "./drafts";
 import { canonicalExerciseName, canonicalizeHistory, type HistoryMap, type SavedSession, type SetEntry } from "./historyMigration";
 import { nextStep, setTarget } from "./progression";
+import { availableChartExercises, bodyweightSeries, exerciseMetricSeries, type ExerciseSeries } from "./progressModel";
 import {
   WORKOUT_SEQUENCE, addWorkoutToHistory, completeWorkout, createActiveWorkout, elapsedLabel, liftMilestones,
   migrateLegacyHistory, nextWorkout as followingWorkout, sessionsInLastDays, workoutDurationMinutes,
@@ -15,6 +16,7 @@ import {
 import "./styles.css";
 
 type Theme = "light" | "dark";
+type AppView = "train" | "progress";
 type Demo = { label: string; slug: string };
 type Exercise = {
   name: string; sets: string; reps: string; rest: string; warmup: string; cue: string;
@@ -33,6 +35,9 @@ const WORKOUTS_KEY = "rolling-ppl-workouts-v2";
 const ACTIVE_WORKOUT_KEY = "rolling-ppl-active-workout-v2";
 const NEXT_WORKOUT_KEY = "rolling-ppl-next-workout-v1";
 const AUTUMN_KEY = "rolling-ppl-autumn-v1";
+const APP_VIEW_KEY = "rolling-ppl-app-view-v1";
+const VOLUME_EXERCISES_KEY = "rolling-ppl-volume-exercises-v1";
+const LOAD_EXERCISES_KEY = "rolling-ppl-load-exercises-v1";
 
 function readStored<T>(key: string, fallback: T): T {
   const value = localStorage.getItem(key);
@@ -226,13 +231,54 @@ function Workout({ workout, onOpen, history, drafts, enabled, onDraftChange }: {
   return <section className={`workout ${workout}`} aria-labelledby={`${workout}-title`}><header className="workout-header"><div><h2 id={`${workout}-title`}>{workout}</h2><p>{data.summary}</p></div><span>{mustDoCount} must · {optionalCount} if time</span></header><p className="short-session"><strong>Minimum version:</strong> complete every Must do card when you can. A shortened session still advances the sequence.</p><div className="exercise-list">{data.exercises.map((exercise, index) => <Fragment key={exercise.name}>{index === mustDoCount && <div className="optional-divider"><span>If time</span><p>Useful additions, already ranked. Stop whenever you need to.</p></div>}<ExerciseRow exercise={exercise} index={index} onOpen={onOpen} history={history[exercise.name] ?? []} draft={drafts[exercise.name] ?? []} enabled={enabled} onDraftChange={(entries) => onDraftChange(exercise.name, entries)} /></Fragment>)}</div></section>;
 }
 
+function compactNumber(value: number, unit: "kg" | "kg·reps") {
+  if (unit === "kg·reps" && value >= 1000) return `${(value / 1000).toFixed(value >= 10_000 ? 0 : 1)}k`;
+  return Number.isInteger(value) ? String(value) : value.toFixed(1);
+}
+
+function LineChart({ series, unit, emptyTitle, emptyHint, label }: {
+  series: ExerciseSeries[]; unit: "kg" | "kg·reps"; emptyTitle: string; emptyHint: string; label: string;
+}) {
+  const points = series.flatMap((item) => item.points);
+  if (!points.length) return <div className="empty-chart"><strong>{emptyTitle}</strong><span>{emptyHint}</span></div>;
+  const values = points.map((point) => point.value); const rawMin = Math.min(...values); const rawMax = Math.max(...values);
+  const padding = Math.max(unit === "kg" ? 1 : 25, (rawMax - rawMin) * .12); const min = Math.max(0, rawMin - padding); const max = rawMax + padding; const spread = Math.max(1, max - min);
+  const dates = points.map((point) => Date.parse(point.date)); const firstDate = Math.min(...dates); const lastDate = Math.max(...dates); const dateSpread = Math.max(1, lastDate - firstDate);
+  const xFor = (date: string) => firstDate === lastDate ? 410 : 58 + ((Date.parse(date) - firstDate) / dateSpread) * 710;
+  const yFor = (value: number) => 224 - ((value - min) / spread) * 184;
+  const ticks = Array.from({ length: 4 }, (_, index) => min + ((max - min) * index) / 3).reverse();
+  const dateLabels = firstDate === lastDate ? [firstDate] : [firstDate, firstDate + dateSpread / 2, lastDate];
+  return <div className="line-chart"><svg viewBox="0 0 800 260" role="img" aria-label={label}>
+    {ticks.map((tick, index) => <g className="chart-grid" key={index}><line x1="58" y1={yFor(tick)} x2="768" y2={yFor(tick)} /><text x="48" y={yFor(tick) + 4}>{compactNumber(tick, unit)}</text></g>)}
+    {dateLabels.map((date, index) => <text className="chart-date" key={date} x={dateLabels.length === 1 ? 410 : index === 0 ? 58 : index === dateLabels.length - 1 ? 768 : 413} y="251" textAnchor={dateLabels.length === 1 ? "middle" : index === 0 ? "start" : index === dateLabels.length - 1 ? "end" : "middle"}>{new Date(date).toLocaleDateString(undefined, { month: "short", day: "numeric" })}</text>)}
+    {series.map((item, seriesIndex) => { const coordinates = item.points.map((point) => ({ ...point, x: xFor(point.date), y: yFor(point.value) })); return <g className={`chart-series series-${seriesIndex % 6}`} key={item.exercise}><polyline points={coordinates.map(({ x, y }) => `${x},${y}`).join(" ")} />{coordinates.map((point, pointIndex) => <circle key={`${point.date}-${point.value}-${pointIndex}`} cx={point.x} cy={point.y} r="4"><title>{item.exercise} · {new Date(point.date).toLocaleDateString()} · {compactNumber(point.value, unit)} {unit}</title></circle>)}</g>; })}
+  </svg><div className="chart-legend">{series.map((item, index) => <span className={`series-${index % 6}`} key={item.exercise}><i />{item.exercise}</span>)}</div></div>;
+}
+
+function ExercisePicker({ available, selected, onChange }: { available: string[]; selected: string[]; onChange: (selected: string[]) => void }) {
+  const toggle = (exercise: string) => onChange(selected.includes(exercise) ? selected.filter((item) => item !== exercise) : [...selected, exercise]);
+  return <details className="exercise-picker"><summary>{selected.length ? `${selected.length} exercise${selected.length === 1 ? "" : "s"}` : "Choose exercises"}</summary><div><header><span>Lines to show · up to 6</span><button type="button" onClick={() => onChange([])}>Clear</button></header>{available.map((exercise) => { const checked = selected.includes(exercise); return <label key={exercise}><input type="checkbox" checked={checked} disabled={!checked && selected.length >= 6} onChange={() => toggle(exercise)} /><span>{exercise}</span></label>; })}</div></details>;
+}
+
 function BodyweightChart({ sessions }: { sessions: CompletedWorkout[] }) {
-  const readings = sessions.filter((session) => Number(session.bodyweight) > 0).slice(0, 10).reverse().map((session) => ({ date: session.endedAt, value: Number(session.bodyweight) }));
-  if (!readings.length) return <div className="empty-progress"><strong>No bodyweight readings yet.</strong><span>Add one when finishing a workout.</span></div>;
-  const values = readings.map((reading) => reading.value); const min = Math.min(...values); const max = Math.max(...values); const spread = Math.max(0.5, max - min);
-  const coordinates = readings.map((reading, index) => ({ x: readings.length === 1 ? 100 : 10 + index * (180 / (readings.length - 1)), y: 72 - ((reading.value - min) / spread) * 54 }));
-  const points = coordinates.map(({ x, y }) => `${x},${y}`).join(" "); const latest = readings.at(-1)!;
-  return <div className="weight-chart"><div><strong>{latest.value.toFixed(2)} kg</strong><span>Latest · {new Date(latest.date).toLocaleDateString(undefined, { month: "short", day: "numeric" })}</span></div><svg viewBox="0 0 200 90" role="img" aria-label={`Bodyweight moved from ${readings[0].value} to ${latest.value} kilograms across ${readings.length} readings`}><line x1="10" y1="72" x2="190" y2="72" /><polyline points={points} />{coordinates.map(({ x, y }, index) => <circle key={`${x}-${y}-${index}`} cx={x} cy={y} r="2.8" />)}</svg><ol>{readings.map((reading) => <li key={reading.date}><time>{new Date(reading.date).toLocaleDateString(undefined, { month: "short", day: "numeric" })}</time><strong>{reading.value.toFixed(2)} kg</strong></li>)}</ol></div>;
+  const readings = bodyweightSeries(sessions); const latest = readings.at(-1); const first = readings[0];
+  const delta = latest && first && readings.length > 1 ? latest.value - first.value : null;
+  const series = readings.length ? [{ exercise: "Bodyweight", points: readings }] : [];
+  return <article className="chart-card bodyweight-chart-card"><div className="chart-card-heading"><div><span className="eyebrow">Bodyweight</span><h3>{latest ? `${latest.value.toFixed(2)} kg` : "No readings"}</h3><p>{latest ? `${readings.length} reading${readings.length === 1 ? "" : "s"}${delta === null ? "" : ` · ${delta >= 0 ? "+" : ""}${delta.toFixed(2)} kg across this view`}` : "Add bodyweight when finishing a workout."}</p></div>{latest && <time dateTime={latest.date}>Latest · {new Date(latest.date).toLocaleDateString(undefined, { month: "short", day: "numeric" })}</time>}</div><LineChart series={series} unit="kg" emptyTitle="No bodyweight line yet." emptyHint="Your readings will appear here after a finished workout." label={`Bodyweight chart with ${readings.length} readings`} /></article>;
+}
+
+function ExerciseChart({ title, description, metric, history, storageKey }: { title: string; description: string; metric: "volume" | "load"; history: HistoryMap; storageKey: string }) {
+  const available = availableChartExercises(history);
+  const [selected, setSelected] = useState<string[]>(() => {
+    const hasStoredChoice = localStorage.getItem(storageKey) !== null; const stored = readStored<string[]>(storageKey, []); const valid = stored.filter((exercise) => available.includes(exercise)).slice(0, 6);
+    if (hasStoredChoice) return valid;
+    const bench = available.find((exercise) => exercise === "Barbell bench press"); return (bench ? [bench] : available.slice(0, 1));
+  });
+  const visible = selected.filter((exercise) => available.includes(exercise));
+  useEffect(() => storeLocal(storageKey, selected), [selected, storageKey]);
+  const series = exerciseMetricSeries(history, visible, metric);
+  const unit = metric === "volume" ? "kg·reps" : "kg";
+  return <article className="chart-card exercise-chart-card"><div className="chart-card-heading"><div><span className="eyebrow">{metric === "volume" ? "Work performed" : "Top set"}</span><h3>{title}</h3><p>{description}</p></div><ExercisePicker available={available} selected={visible} onChange={setSelected} /></div><LineChart series={series} unit={unit} emptyTitle={visible.length ? "No numeric loads for this selection." : "Choose an exercise to draw the line."} emptyHint={visible.length ? "Loads recorded as BW or text cannot be plotted in kilograms." : "Use the exercise picker above."} label={`${title} chart for ${visible.join(", ") || "no selected exercises"}`} />{metric === "volume" && <p className="chart-footnote">Recorded-load volume uses load × reps. Dumbbell values remain per dumbbell; BW and text loads are excluded.</p>}</article>;
 }
 
 function bestRecordedSet(sessions: SavedSession[]) {
@@ -246,7 +292,7 @@ function Progress({ sessions, history }: { sessions: CompletedWorkout[]; history
   const average = timed.length ? Math.round(timed.reduce((sum, duration) => sum + duration, 0) / timed.length) : 0;
   const liftHistory = Object.entries(history).filter(([, saved]) => saved.length > 0);
   const milestones = liftMilestones(history).slice(0, 6);
-  return <section className="progress" id="progress" aria-labelledby="progress-title"><div className="section-heading"><div><span className="eyebrow">Training record</span><h2 id="progress-title">Progress</h2></div><p>Facts from completed workouts—no streaks and no makeup debt.</p></div><div className="progress-grid"><article className="frequency-card"><span>Last 28 days</span><strong>{recent.length}</strong><p>completed workout{recent.length === 1 ? "" : "s"}{average ? ` · ${average} min average` : ""}</p><div>{WORKOUT_SEQUENCE.map((workout) => <span className={workout} key={workout}>{workout} <b>{recent.filter((session) => session.workout === workout).length}</b></span>)}</div></article><article className="bodyweight-card"><span>Bodyweight</span><BodyweightChart sessions={sessions} /></article></div>{milestones.length > 0 && <div className="milestones"><h3>Recent milestones</h3><div>{milestones.map((milestone) => <article key={`${milestone.exercise}-${milestone.date}-${milestone.kind}`}><span>{milestone.kind === "load" ? "New load" : "Rep record"}</span><strong>{milestone.exercise}</strong><p>{milestone.load || "BW"} × {milestone.reps}</p><time>{new Date(milestone.date).toLocaleDateString(undefined, { month: "short", day: "numeric" })}</time></article>)}</div></div>}<div className="lift-progress"><h3>Recent lifts</h3>{liftHistory.length ? <div className="lift-grid">{liftHistory.map(([name, saved]) => { const record = bestRecordedSet([...saved]); return <details key={name}><summary><span>{name}</span><strong>{record ? `${record.load || "BW"} × ${record.reps}` : "—"}<small>recorded best</small></strong></summary><ol>{saved.slice(0, 4).map((session) => <li key={session.id}><time>{new Date(session.savedAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}</time><span>{formatSession(session)}</span></li>)}</ol></details>; })}</div> : <div className="empty-progress"><strong>No completed lifts yet.</strong><span>Finish a workout to begin the record.</span></div>}</div></section>;
+  return <section className="progress" aria-labelledby="progress-title"><div className="section-heading progress-heading"><div><span className="eyebrow">Training record</span><h2 id="progress-title">Progress</h2></div><p>Facts from completed workouts—no streaks and no makeup debt.</p></div><BodyweightChart sessions={sessions} /><div className="metric-chart-grid"><ExerciseChart title="Volume" description="Total recorded load × reps for each workout." metric="volume" history={history} storageKey={VOLUME_EXERCISES_KEY} /><ExerciseChart title="Working weight" description="The heaviest completed set in each workout." metric="load" history={history} storageKey={LOAD_EXERCISES_KEY} /></div><div className="progress-support"><article className="frequency-card"><span>Last 28 days</span><strong>{recent.length}</strong><p>completed workout{recent.length === 1 ? "" : "s"}{average ? ` · ${average} min average` : ""}</p><div>{WORKOUT_SEQUENCE.map((workout) => <span className={workout} key={workout}>{workout} <b>{recent.filter((session) => session.workout === workout).length}</b></span>)}</div></article>{milestones.length > 0 && <div className="milestones"><h3>Recent milestones</h3><div>{milestones.map((milestone) => <article key={`${milestone.exercise}-${milestone.date}-${milestone.kind}`}><span>{milestone.kind === "load" ? "New load" : "Rep record"}</span><strong>{milestone.exercise}</strong><p>{milestone.load || "BW"} × {milestone.reps}</p><time>{new Date(milestone.date).toLocaleDateString(undefined, { month: "short", day: "numeric" })}</time></article>)}</div></div>}</div><div className="lift-progress"><h3>Recent lifts</h3>{liftHistory.length ? <div className="lift-grid">{liftHistory.map(([name, saved]) => { const record = bestRecordedSet([...saved]); return <details key={name}><summary><span>{name}</span><strong>{record ? `${record.load || "BW"} × ${record.reps}` : "—"}<small>recorded best</small></strong></summary><ol>{saved.slice(0, 4).map((session) => <li key={session.id}><time>{new Date(session.savedAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}</time><span>{formatSession(session)}</span></li>)}</ol></details>; })}</div> : <div className="empty-progress"><strong>No completed lifts yet.</strong><span>Finish a workout to begin the record.</span></div>}</div></section>;
 }
 
 function AutumnConnection({ settings, projects, status, busy, pending, onSettings, onSignIn, onTest, onLoad, onSync }: {
@@ -255,7 +301,19 @@ function AutumnConnection({ settings, projects, status, busy, pending, onSetting
 }) {
   const [password, setPassword] = useState("");
   const submit = async (event: FormEvent) => { event.preventDefault(); await onSignIn(settings.username, password); setPassword(""); };
-  return <section className="autumn-panel" id="autumn" aria-labelledby="autumn-title"><div className="section-heading"><div><span className="eyebrow">Optional connection</span><h2 id="autumn-title">Autumn sync</h2></div><p>Your password is never saved. The returned token stays only in this browser and is excluded from backups.</p></div><div className="autumn-layout"><form onSubmit={submit}><label><span>Username or email</span><input autoComplete="username" value={settings.username} onChange={(event) => onSettings({ ...settings, username: event.target.value })} /></label><label><span>Password</span><input type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} /></label><button className="primary-action" type="submit" disabled={busy || !settings.username || !password}>{busy ? "Connecting…" : "Connect"}</button></form><div className="autumn-project"><label><span>Gym project</span><select value={settings.projectId ?? ""} disabled={!settings.token || busy} onChange={(event) => { const project = projects.find((item) => item.id === Number(event.target.value)); onSettings({ ...settings, projectId: project?.id, projectName: project?.name }); }}><option value="">Choose a project</option>{projects.map((project) => <option value={project.id} key={project.id}>{project.name}{project.status === "active" ? " · active" : ""}</option>)}</select></label><div><button type="button" className="secondary-action" disabled={!settings.token || busy} onClick={onLoad}>Load projects</button><button type="button" className="text-action" disabled={!settings.token || busy} onClick={onTest}>Test connection</button></div><p className={status.toLowerCase().includes("failed") || status.toLowerCase().includes("choose") ? "error" : ""} role="status">{status || (settings.token ? "Connected token saved locally." : "Connect once, then choose the current gym project.")}</p></div></div>{pending.length > 0 && <div className="pending-sync"><h3>Waiting to sync <span>{pending.length}</span></h3>{pending.map((session) => <article key={session.id}><div><strong>{session.workout} · {new Date(session.endedAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}</strong><small>{session.sync.message || `Ready for ${session.sync.projectName || settings.projectName || "your gym project"}.`}</small><details><summary>Review Autumn note</summary><pre>{workoutSummary(session)}</pre></details></div><button type="button" disabled={busy} onClick={() => onSync(session)}>{session.sync.status === "error" ? "Retry" : "Sync"}</button></article>)}</div>}<details className="connection-advanced"><summary>Connection details</summary><label><span>Autumn URL</span><input type="url" value={settings.baseUrl} placeholder={DEFAULT_AUTUMN_URL} onChange={(event) => onSettings({ ...settings, baseUrl: event.target.value })} /></label><label><span>API token</span><input type="password" autoComplete="off" value={settings.token} placeholder="Paste a token instead of signing in" onChange={(event) => onSettings({ ...settings, token: event.target.value.trim() })} /></label></details></section>;
+  return <section className="autumn-panel" aria-labelledby="autumn-title"><div className="section-heading"><div><span className="eyebrow">Optional connection</span><h2 id="autumn-title">Autumn sync</h2></div><p>Your password is never saved. The returned token stays only in this browser and is excluded from backups.</p></div><div className="autumn-layout"><form onSubmit={submit}><label><span>Username or email</span><input autoComplete="username" value={settings.username} onChange={(event) => onSettings({ ...settings, username: event.target.value })} /></label><label><span>Password</span><input type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} /></label><button className="primary-action" type="submit" disabled={busy || !settings.username || !password}>{busy ? "Connecting…" : "Connect"}</button></form><div className="autumn-project"><label><span>Gym project</span><select value={settings.projectId ?? ""} disabled={!settings.token || busy} onChange={(event) => { const project = projects.find((item) => item.id === Number(event.target.value)); onSettings({ ...settings, projectId: project?.id, projectName: project?.name }); }}><option value="">Choose a project</option>{projects.map((project) => <option value={project.id} key={project.id}>{project.name}{project.status === "active" ? " · active" : ""}</option>)}</select></label><div><button type="button" className="secondary-action" disabled={!settings.token || busy} onClick={onLoad}>Load projects</button><button type="button" className="text-action" disabled={!settings.token || busy} onClick={onTest}>Test connection</button></div><p className={status.toLowerCase().includes("failed") || status.toLowerCase().includes("choose") ? "error" : ""} role="status">{status || (settings.token ? "Connected token saved locally." : "Connect once, then choose the current gym project.")}</p></div></div>{pending.length > 0 && <div className="pending-sync"><h3>Waiting to sync <span>{pending.length}</span></h3>{pending.map((session) => <article key={session.id}><div><strong>{session.workout} · {new Date(session.endedAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}</strong><small>{session.sync.message || `Ready for ${session.sync.projectName || settings.projectName || "your gym project"}.`}</small><details><summary>Review Autumn note</summary><pre>{workoutSummary(session)}</pre></details></div><button type="button" disabled={busy} onClick={() => onSync(session)}>{session.sync.status === "error" ? "Retry" : "Sync"}</button></article>)}</div>}<details className="connection-advanced"><summary>Connection details</summary><label><span>Autumn URL</span><input type="url" value={settings.baseUrl} placeholder={DEFAULT_AUTUMN_URL} onChange={(event) => onSettings({ ...settings, baseUrl: event.target.value })} /></label><label><span>API token</span><input type="password" autoComplete="off" value={settings.token} placeholder="Paste a token instead of signing in" onChange={(event) => onSettings({ ...settings, token: event.target.value.trim() })} /></label></details></section>;
+}
+
+function AutumnModal({ open, onClose, children }: { open: boolean; onClose: () => void; children: ReactNode }) {
+  useEffect(() => {
+    if (!open) return;
+    const previousOverflow = document.body.style.overflow;
+    const onKeyDown = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
+    document.body.style.overflow = "hidden"; window.addEventListener("keydown", onKeyDown);
+    return () => { document.body.style.overflow = previousOverflow; window.removeEventListener("keydown", onKeyDown); };
+  }, [open, onClose]);
+  if (!open) return null;
+  return <div className="modal-backdrop"><button className="modal-scrim" type="button" aria-label="Close Autumn settings" onClick={onClose} /><div className="autumn-dialog" role="dialog" aria-modal="true" aria-labelledby="autumn-title"><button className="modal-close" type="button" onClick={onClose}>Close <span aria-hidden="true">×</span></button>{children}</div></div>;
 }
 
 function Notes() {
@@ -276,7 +334,9 @@ function App() {
   const [activeWorkout, setActiveWorkout] = useState<ActiveWorkout | null>(() => readStored<ActiveWorkout | null>(ACTIVE_WORKOUT_KEY, null));
   const [next, setNext] = useState<WorkoutKey>(() => { const stored = readStored<unknown>(NEXT_WORKOUT_KEY, ""); if (isWorkoutKey(stored)) return stored; const sessions = readStored<CompletedWorkout[]>(WORKOUTS_KEY, []); if (sessions[0] && isWorkoutKey(sessions[0].workout)) return followingWorkout(sessions[0].workout); const legacy = migrateLegacyHistory(initialHistory, exerciseWorkouts); return legacy[0] ? followingWorkout(legacy[0].workout) : "push"; });
   const [activeTab, setActiveTab] = useState<WorkoutKey>(() => activeWorkout?.workout ?? next);
+  const [appView, setAppView] = useState<AppView>(() => readStored<AppView>(APP_VIEW_KEY, "train") === "progress" ? "progress" : "train");
   const [lightbox, setLightbox] = useState<LightboxImage | null>(null);
+  const [autumnOpen, setAutumnOpen] = useState(false);
   const [finishing, setFinishing] = useState(false);
   const [bodyweight, setBodyweight] = useState("");
   const [sessionNote, setSessionNote] = useState("");
@@ -295,6 +355,7 @@ function App() {
   useEffect(() => storeLocal(WORKOUTS_KEY, completed), [completed]);
   useEffect(() => storeLocal(ACTIVE_WORKOUT_KEY, activeWorkout), [activeWorkout]);
   useEffect(() => storeLocal(NEXT_WORKOUT_KEY, next), [next]);
+  useEffect(() => storeLocal(APP_VIEW_KEY, appView), [appView]);
   useEffect(() => storeLocal(AUTUMN_KEY, autumn), [autumn]);
   useEffect(() => { document.documentElement.dataset.theme = theme; document.documentElement.style.colorScheme = theme; document.querySelector('meta[name="theme-color"]')?.setAttribute("content", theme === "dark" ? "#171d24" : "#f2f4f6"); storeLocal(THEME_KEY, theme); }, [theme]);
   useEffect(() => { if (!activeWorkout) return; const timer = window.setInterval(() => setNow(Date.now()), 1000); return () => window.clearInterval(timer); }, [activeWorkout]);
@@ -302,7 +363,7 @@ function App() {
 
   const installApp = async () => { if (!installPrompt) return; await installPrompt.prompt(); await installPrompt.userChoice; setInstallPrompt(null); };
   const updateDraft = (name: string, entries: SetEntry[]) => setDrafts((current) => ({ ...current, [name]: entries }));
-  const startWorkout = () => { const active = createActiveWorkout(next); setActiveWorkout(active); setActiveTab(next); setNow(Date.now()); setFinishing(false); setFinishError(""); window.scrollTo({ top: 0, behavior: "smooth" }); };
+  const startWorkout = () => { const active = createActiveWorkout(next); setActiveWorkout(active); setActiveTab(next); setAppView("train"); setNow(Date.now()); setFinishing(false); setFinishError(""); window.scrollTo({ top: 0, behavior: "smooth" }); };
   const cancelWorkout = () => {
     if (!activeWorkout || !window.confirm("Cancel this workout and clear its entered sets?")) return;
     const names = new Set(workouts[activeWorkout.workout].exercises.map((exercise) => exercise.name));
@@ -336,7 +397,7 @@ function App() {
   const updateCompleted = (id: string, update: (session: CompletedWorkout) => CompletedWorkout) => setCompleted((current) => current.map((session) => session.id === id ? update(session) : session));
   const syncWorkout = async (session: CompletedWorkout) => {
     const hasDestination = Boolean((session.sync.projectId && session.sync.projectName) || (autumn.projectId && autumn.projectName));
-    if (!autumn.token || !hasDestination) { setAutumnStatus("Choose an Autumn connection and gym project before syncing."); document.getElementById("autumn")?.scrollIntoView({ behavior: "smooth" }); return; }
+    if (!autumn.token || !hasDestination) { setAutumnStatus("Choose an Autumn connection and gym project before syncing."); setAutumnOpen(true); return; }
     setAutumnBusy(true); updateCompleted(session.id, (current) => ({ ...current, sync: { ...current.sync, status: "syncing", message: "Sending to Autumn…" } }));
     const destination = session.sync.projectId && session.sync.projectName ? { ...autumn, projectId: session.sync.projectId, projectName: session.sync.projectName } : autumn;
     try { const result = await pushWorkoutToAutumn(destination, session); updateCompleted(session.id, (current) => ({ ...current, sync: { status: "synced", projectId: destination.projectId, projectName: destination.projectName, autumnSessionId: result.id, syncedAt: new Date().toISOString() } })); setAutumnStatus(`Synced ${session.workout} to ${destination.projectName}.`); }
@@ -359,19 +420,18 @@ function App() {
   const latest = completed.find((session) => session.sync.status !== "legacy");
   const pending = completed.filter((session) => session.sync.status === "unsynced" || session.sync.status === "error" || session.sync.status === "syncing");
   return <>
-    <header className="app-header"><div><h1>Rolling PPL</h1><p>Chest-prioritized · no weekly reset</p></div><div className="header-actions"><a href="#progress">Progress</a><a href="#autumn">Autumn</a><details className="export-menu"><summary aria-label="Export or import workout history">Data</summary><div className="export-panel"><span>Workout history</span><button type="button" disabled={!hasHistory} onClick={() => downloadHistory(history, completed, "json")}>JSON <small>Full backup</small></button><button type="button" disabled={!hasHistory} onClick={() => downloadHistory(history, completed, "csv")}>CSV <small>Spreadsheet</small></button><div className="export-separator" /><label className="import-button">Import <small>JSON or CSV</small><input className="file-input" type="file" accept=".json,.csv,application/json,text/csv" onChange={importHistory} /></label>{importResult && <p className={`import-result ${importResult.kind}`} role="status">{importResult.message}</p>}</div></details>{installPrompt && <button className="install-button" type="button" onClick={installApp}>Install</button>}<button className="theme-toggle" type="button" onClick={() => setTheme((current) => current === "dark" ? "light" : "dark")} aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}><span aria-hidden="true">{theme === "dark" ? "☀" : "☾"}</span></button></div></header>
+    <header className="app-header"><div className="app-brand"><h1>Rolling PPL</h1><p>Chest-prioritized · no weekly reset</p></div><nav className="primary-nav" aria-label="App sections"><button type="button" className={appView === "train" ? "active" : ""} aria-current={appView === "train" ? "page" : undefined} onClick={() => setAppView("train")}>Train{activeWorkout && <i aria-label="Workout in progress" />}</button><button type="button" className={appView === "progress" ? "active" : ""} aria-current={appView === "progress" ? "page" : undefined} onClick={() => setAppView("progress")}>Progress</button></nav><div className="header-actions"><button className="utility-button" type="button" onClick={() => setAutumnOpen(true)}>Autumn{pending.length > 0 && <b>{pending.length}</b>}</button><details className="export-menu"><summary aria-label="Export or import workout history">Data</summary><div className="export-panel"><span>Workout history</span><button type="button" disabled={!hasHistory} onClick={() => downloadHistory(history, completed, "json")}>JSON <small>Full backup</small></button><button type="button" disabled={!hasHistory} onClick={() => downloadHistory(history, completed, "csv")}>CSV <small>Spreadsheet</small></button><div className="export-separator" /><label className="import-button">Import <small>JSON or CSV</small><input className="file-input" type="file" accept=".json,.csv,application/json,text/csv" onChange={importHistory} /></label>{importResult && <p className={`import-result ${importResult.kind}`} role="status">{importResult.message}</p>}</div></details>{installPrompt && <button className="install-button" type="button" onClick={installApp}>Install</button>}<button className="theme-toggle" type="button" onClick={() => setTheme((current) => current === "dark" ? "light" : "dark")} aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}><span aria-hidden="true">{theme === "dark" ? "☀" : "☾"}</span></button></div></header>
     <main>
-      <TrainingRail next={next} active={activeWorkout} now={now} finishing={finishing} latest={latest} syncBusy={autumnBusy} onSetNext={(workout) => { setNext(workout); setActiveTab(workout); }} onStart={startWorkout} onFinish={() => setFinishing(true)} onCancel={cancelWorkout} onSync={syncWorkout} />
-      {finishing && activeWorkout && <FinishWorkout workout={activeWorkout.workout} bodyweight={bodyweight} note={sessionNote} error={finishError} onBodyweight={setBodyweight} onNote={setSessionNote} onBack={() => { setFinishing(false); setFinishError(""); }} onSave={saveFinishedWorkout} />}
-      <div className="workout-tabs" role="tablist" aria-label="Choose a workout to view">{WORKOUT_SEQUENCE.map((key) => <button key={key} role="tab" aria-selected={activeTab === key} className={activeTab === key ? `active ${key}` : ""} onClick={() => setActiveTab(key)}>{key}<small>{activeWorkout?.workout === key ? "logging now" : `${workouts[key].exercises.length} exercises`}</small></button>)}</div>
-      <p className="storage-note">Sets autosave on this device. Finish once; sync to Autumn when ready.</p>
-      <Workout workout={activeTab} onOpen={setLightbox} history={history} drafts={drafts} enabled={activeWorkout?.workout === activeTab && !finishing} onDraftChange={updateDraft} />
-      <Progress sessions={completed} history={history} />
-      <AutumnConnection settings={autumn} projects={autumnProjects} status={autumnStatus} busy={autumnBusy} pending={pending} onSettings={setAutumn} onSignIn={signIn} onTest={testConnection} onLoad={loadProjects} onSync={syncWorkout} />
-      <Notes />
+      {appView === "train" ? <><TrainingRail next={next} active={activeWorkout} now={now} finishing={finishing} latest={latest} syncBusy={autumnBusy} onSetNext={(workout) => { setNext(workout); setActiveTab(workout); }} onStart={startWorkout} onFinish={() => setFinishing(true)} onCancel={cancelWorkout} onSync={syncWorkout} />
+        {finishing && activeWorkout && <FinishWorkout workout={activeWorkout.workout} bodyweight={bodyweight} note={sessionNote} error={finishError} onBodyweight={setBodyweight} onNote={setSessionNote} onBack={() => { setFinishing(false); setFinishError(""); }} onSave={saveFinishedWorkout} />}
+        <div className="workout-tabs" role="tablist" aria-label="Choose a workout to view">{WORKOUT_SEQUENCE.map((key) => <button key={key} role="tab" aria-selected={activeTab === key} className={activeTab === key ? `active ${key}` : ""} onClick={() => setActiveTab(key)}>{key}<small>{activeWorkout?.workout === key ? "logging now" : `${workouts[key].exercises.length} exercises`}</small></button>)}</div>
+        <p className="storage-note">Sets autosave on this device. Finish once; sync to Autumn when ready.</p>
+        <Workout workout={activeTab} onOpen={setLightbox} history={history} drafts={drafts} enabled={activeWorkout?.workout === activeTab && !finishing} onDraftChange={updateDraft} /><Notes /></>
+        : <Progress sessions={completed} history={history} />}
     </main>
     <footer><p><strong>Rolling PPL</strong> · Keep the sequence; skip the weekly reset.</p><p>Exercise imagery from the public-domain <a href="https://github.com/yuhonas/free-exercise-db" target="_blank" rel="noreferrer">Free Exercise DB</a> (Unlicense).</p></footer>
     <Lightbox image={lightbox} onClose={() => setLightbox(null)} />
+    <AutumnModal open={autumnOpen} onClose={() => setAutumnOpen(false)}><AutumnConnection settings={autumn} projects={autumnProjects} status={autumnStatus} busy={autumnBusy} pending={pending} onSettings={setAutumn} onSignIn={signIn} onTest={testConnection} onLoad={loadProjects} onSync={syncWorkout} /></AutumnModal>
   </>;
 }
 

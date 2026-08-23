@@ -5,13 +5,14 @@ A phone-first, chest-prioritized rolling Push/Pull/Legs workout tracker. The seq
 ## Features
 
 - Persistent next-workout sequence with start, elapsed-time, and finish controls
-- Three focused workout tabs
+- Separate Train and Progress destinations, with three focused workout tabs inside Train
 - Gym-readable exercise rows with work sets, optional warm-ups, rest, cues, and click-to-enlarge public-domain photos
 - Crash-safe workout drafts and device-local completed sessions
 - Previous-session context, per-set target placeholders, and double-progression suggestions
 - Optional bodyweight and session notes
-- Session frequency, bodyweight trend, recent lift history, and genuine load/rep milestones
-- Direct completed-session sync to an Autumn project with idempotent retries
+- Full-width bodyweight chart plus exercise-selectable recorded-volume and working-weight charts
+- Session frequency, recent lift history, and genuine load/rep milestones
+- Header-accessible Autumn connection modal and direct completed-session sync with idempotent retries
 - Workout-history export and restore in structured JSON or spreadsheet-ready CSV
 - Light and dark themes with a remembered toggle
 - Installable PWA with offline workout access
@@ -29,7 +30,9 @@ The dev server runs at `http://127.0.0.1:4173`, an origin already allowed by Aut
 
 ## Autumn sync
 
-Open **Autumn** in the app, connect with an Autumn username/password or API token, and choose the current gym project. The password is used only for sign-in and is never stored. The returned token stays in that browser and is excluded from Rolling PPL backups.
+Open **Autumn** from the header, connect with an Autumn username/password or API token, and choose the current gym project. The password is used only for sign-in and is never stored. The returned token stays in that browser and is excluded from Rolling PPL backups.
+
+The Progress tab plots up to 24 bodyweight readings. Volume is the sum of recorded numeric load × reps for each exercise session, while working weight is the heaviest completed set. Exercise selections are remembered per chart. Dumbbell values stay as entered (per dumbbell), and bodyweight/text loads are excluded from kilogram charts.
 
 Workouts are timed and completed locally first. **Sync to Autumn** then posts one completed session with the original start/end timestamps and a stable UUID, so an interrupted retry cannot create a duplicate.
 
