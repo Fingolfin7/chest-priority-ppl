@@ -1,4 +1,4 @@
-import { Fragment, StrictMode, useEffect, useMemo, useState, type ChangeEvent, type FormEvent, type ReactNode } from "react";
+import { Fragment, StrictMode, useEffect, useMemo, useState, type ChangeEvent, type FormEvent, type MouseEvent, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import {
   DEFAULT_AUTUMN_URL, defaultAutumnSettings, getAutumnAccount, listAutumnProjects,
@@ -257,7 +257,8 @@ function LineChart({ series, unit, emptyTitle, emptyHint, label }: {
 
 function ExercisePicker({ available, selected, onChange }: { available: string[]; selected: string[]; onChange: (selected: string[]) => void }) {
   const toggle = (exercise: string) => onChange(selected.includes(exercise) ? selected.filter((item) => item !== exercise) : [...selected, exercise]);
-  return <details className="exercise-picker"><summary>{selected.length ? `${selected.length} exercise${selected.length === 1 ? "" : "s"}` : "Choose exercises"}</summary><div><header><span>Lines to show · up to 6</span><button type="button" onClick={() => onChange([])}>Clear</button></header>{available.map((exercise) => { const checked = selected.includes(exercise); return <label key={exercise}><input type="checkbox" checked={checked} disabled={!checked && selected.length >= 6} onChange={() => toggle(exercise)} /><span>{exercise}</span></label>; })}</div></details>;
+  const close = (event: MouseEvent<HTMLButtonElement>) => { const picker = event.currentTarget.closest("details"); if (picker instanceof HTMLDetailsElement) picker.open = false; };
+  return <details className="exercise-picker"><summary>{selected.length ? `${selected.length} exercise${selected.length === 1 ? "" : "s"}` : "Choose exercises"}</summary><div><header><span>Lines to show · up to 6</span><div className="picker-actions"><button type="button" onClick={() => onChange([])}>Clear</button><button className="picker-done" type="button" onClick={close}>Done</button></div></header>{available.map((exercise) => { const checked = selected.includes(exercise); return <label key={exercise}><input type="checkbox" checked={checked} disabled={!checked && selected.length >= 6} onChange={() => toggle(exercise)} /><span>{exercise}</span></label>; })}</div></details>;
 }
 
 function BodyweightChart({ sessions }: { sessions: CompletedWorkout[] }) {
