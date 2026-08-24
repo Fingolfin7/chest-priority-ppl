@@ -4,8 +4,9 @@ import {
   DEFAULT_AUTUMN_URL, defaultAutumnSettings, getAutumnAccount, listAutumnProjects,
   pushWorkoutToAutumn, signInToAutumn, type AutumnProject, type AutumnSettings,
 } from "./autumn";
+import { createCsvBackup, createJsonBackup, parseCsvBackup, parseJsonBackup } from "./backup";
 import { pruneCompletedDrafts, type DraftMap } from "./drafts";
-import { canonicalExerciseName, canonicalizeHistory, type HistoryMap, type SavedSession, type SetEntry } from "./historyMigration";
+import { canonicalizeHistory, type HistoryMap, type SavedSession, type SetEntry } from "./historyMigration";
 import { nextStep, setTarget } from "./progression";
 import { availableChartExercises, bodyweightSeries, exerciseMetricSeries, type ExerciseSeries } from "./progressModel";
 import {
@@ -24,7 +25,6 @@ type Exercise = {
 };
 type LightboxImage = { src: string; alt: string };
 type ExportFormat = "json" | "csv";
-type ExportSession = { exercise: string; sessionId: string; performedAt: string; sets: Array<SetEntry & { set: number }> };
 type ImportResult = { kind: "success" | "error"; message: string } | null;
 type InstallPromptEvent = Event & { prompt: () => Promise<void>; userChoice: Promise<{ outcome: "accepted" | "dismissed" }> };
 
@@ -53,105 +53,14 @@ function storeLocal(key: string, value: unknown) {
 
 function isWorkoutKey(value: unknown): value is WorkoutKey { return value === "push" || value === "pull" || value === "legs"; }
 
-function exportSessions(history: HistoryMap): ExportSession[] {
-  return Object.entries(history).flatMap(([exercise, sessions]) => sessions.map((session) => ({
-    exercise, sessionId: session.id, performedAt: session.savedAt,
-    sets: session.sets.map((set, index) => ({ set: index + 1, ...set })),
-  }))).sort((left, right) => right.performedAt.localeCompare(left.performedAt));
-}
-
-function csvCell(value: string | number) {
-  const text = String(value);
-  const safe = /^[=+\-@]/.test(text) ? `'${text}` : text;
-  return `"${safe.replaceAll('"', '""')}"`;
-}
-
 function downloadHistory(history: HistoryMap, completedWorkouts: CompletedWorkout[], format: ExportFormat) {
-  const sessions = exportSessions(history);
   const dateStamp = new Date().toISOString().slice(0, 10);
-  let content: string;
-  let mimeType: string;
-  if (format === "json") {
-    content = JSON.stringify({ schemaVersion: 2, app: "Rolling PPL", exportedAt: new Date().toISOString(), sessions, workouts: completedWorkouts }, null, 2);
-    mimeType = "application/json;charset=utf-8";
-  } else {
-    const rows = sessions.flatMap((session) => session.sets.map((set) => [session.exercise, session.performedAt.slice(0, 10), session.performedAt, session.sessionId, set.set, set.load || "BW", set.reps]));
-    content = `\uFEFF${[["exercise", "session_date", "session_timestamp", "session_id", "set_number", "load", "reps"], ...rows].map((row) => row.map(csvCell).join(",")).join("\r\n")}`;
-    mimeType = "text/csv;charset=utf-8";
-  }
+  const content = format === "json" ? createJsonBackup(history, completedWorkouts) : createCsvBackup(history, completedWorkouts);
+  const mimeType = format === "json" ? "application/json;charset=utf-8" : "text/csv;charset=utf-8";
   const url = URL.createObjectURL(new Blob([content], { type: mimeType }));
   const link = document.createElement("a");
   link.href = url; link.download = `rolling-ppl-history-${dateStamp}.${format}`; document.body.append(link); link.click(); link.remove();
   window.setTimeout(() => URL.revokeObjectURL(url), 1000);
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> { return typeof value === "object" && value !== null && !Array.isArray(value); }
-
-function normalizeSession(value: unknown, position: number): ExportSession {
-  if (!isRecord(value)) throw new Error(`Session ${position} is not an object.`);
-  const exercise = typeof value.exercise === "string" ? canonicalExerciseName(value.exercise) : "";
-  const sessionId = typeof value.sessionId === "string" ? value.sessionId.trim() : "";
-  const performedAt = typeof value.performedAt === "string" ? value.performedAt.trim() : "";
-  if (!exercise || !sessionId) throw new Error(`Session ${position} is missing an exercise or session ID.`);
-  if (!performedAt || Number.isNaN(Date.parse(performedAt))) throw new Error(`Session ${position} has an invalid timestamp.`);
-  if (!Array.isArray(value.sets) || !value.sets.length) throw new Error(`Session ${position} has no work sets.`);
-  const sets = value.sets.map((rawSet, index) => {
-    if (!isRecord(rawSet)) throw new Error(`Session ${position}, set ${index + 1} is invalid.`);
-    const load = rawSet.load == null ? "" : String(rawSet.load).trim();
-    const reps = rawSet.reps == null ? "" : String(rawSet.reps).trim();
-    const set = Number(rawSet.set ?? index + 1);
-    if (!Number.isInteger(set) || set < 1 || !reps || !Number.isFinite(Number(reps)) || Number(reps) <= 0) throw new Error(`Session ${position}, set ${index + 1} is invalid.`);
-    return { set, load, reps };
-  }).sort((left, right) => left.set - right.set);
-  return { exercise, sessionId, performedAt: new Date(performedAt).toISOString(), sets };
-}
-
-function parseCsvRows(text: string) {
-  const rows: string[][] = []; let row: string[] = []; let cell = ""; let quoted = false;
-  for (let index = 0; index < text.length; index += 1) {
-    const character = text[index];
-    if (quoted) {
-      if (character === '"' && text[index + 1] === '"') { cell += '"'; index += 1; }
-      else if (character === '"') quoted = false; else cell += character;
-    } else if (character === '"') quoted = true;
-    else if (character === ",") { row.push(cell); cell = ""; }
-    else if (character === "\n") { row.push(cell.replace(/\r$/, "")); rows.push(row); row = []; cell = ""; }
-    else cell += character;
-  }
-  if (quoted) throw new Error("The CSV file has an unclosed quoted field.");
-  if (cell || row.length) { row.push(cell.replace(/\r$/, "")); rows.push(row); }
-  return rows;
-}
-
-function parseCsvSessions(text: string) {
-  const rows = parseCsvRows(text.replace(/^\uFEFF/, ""));
-  const header = rows.shift()?.map((value) => value.trim()) ?? [];
-  const required = ["exercise", "session_timestamp", "session_id", "set_number", "load", "reps"];
-  const columns = Object.fromEntries(required.map((name) => [name, header.indexOf(name)]));
-  if (required.some((name) => columns[name] < 0)) throw new Error("This is not a Rolling PPL CSV export.");
-  const grouped = new Map<string, ExportSession>();
-  rows.filter((item) => item.some((value) => value.trim())).forEach((item, rowIndex) => {
-    const get = (name: string) => (item[columns[name]] ?? "").trim();
-    const exercise = get("exercise"); const sessionId = get("session_id"); const performedAt = get("session_timestamp"); const set = Number(get("set_number")); const reps = get("reps");
-    if (!exercise || !sessionId || Number.isNaN(Date.parse(performedAt)) || !Number.isInteger(set) || set < 1 || Number(reps) <= 0) throw new Error(`CSV row ${rowIndex + 2} is invalid.`);
-    const key = `${exercise}\u0000${sessionId}`;
-    const session = grouped.get(key) ?? { exercise, sessionId, performedAt: new Date(performedAt).toISOString(), sets: [] };
-    session.sets.push({ set, load: get("load"), reps }); grouped.set(key, session);
-  });
-  if (!grouped.size) throw new Error("The export contains no sessions.");
-  return Array.from(grouped.values()).map((session, index) => normalizeSession(session, index + 1));
-}
-
-function parseJsonBackup(text: string) {
-  let value: unknown; try { value = JSON.parse(text); } catch { throw new Error("The JSON file is not valid."); }
-  if (!isRecord(value) || !Array.isArray(value.sessions)) throw new Error("This is not a Rolling PPL JSON export.");
-  const sessions = value.sessions.map((session, index) => normalizeSession(session, index + 1));
-  const workouts = Array.isArray(value.workouts) ? value.workouts.filter((workout): workout is CompletedWorkout => {
-    if (!isRecord(workout) || typeof workout.id !== "string" || !isWorkoutKey(workout.workout) || !Array.isArray(workout.exercises)) return false;
-    return typeof workout.startedAt === "string" && typeof workout.endedAt === "string" && !Number.isNaN(Date.parse(workout.startedAt)) && !Number.isNaN(Date.parse(workout.endedAt));
-  }) : [];
-  if (!sessions.length && !workouts.length) throw new Error("The export contains no sessions.");
-  return { sessions, workouts };
 }
 
 function setRange(value: string) { const values = value.match(/\d+/g)?.map(Number) ?? [1]; return { min: values[0], max: values.at(-1) ?? values[0] }; }
@@ -410,7 +319,7 @@ function App() {
   const importHistory = async (event: ChangeEvent<HTMLInputElement>) => {
     const input = event.currentTarget; const file = input.files?.[0]; if (!file) return;
     try {
-      const text = await file.text(); const parsed = file.name.toLowerCase().endsWith(".csv") ? { sessions: parseCsvSessions(text), workouts: [] as CompletedWorkout[] } : parseJsonBackup(text);
+      const text = await file.text(); const parsed = file.name.toLowerCase().endsWith(".csv") ? parseCsvBackup(text) : parseJsonBackup(text);
       setHistory((current) => { const nextHistory: HistoryMap = { ...current }; parsed.sessions.forEach((session) => { const restored = { id: session.sessionId, savedAt: session.performedAt, sets: session.sets.map(({ load, reps }) => ({ load, reps })) }; const byId = new Map((nextHistory[session.exercise] ?? []).map((saved) => [saved.id, saved])); byId.set(restored.id, restored); nextHistory[session.exercise] = Array.from(byId.values()).sort((left, right) => right.savedAt.localeCompare(left.savedAt)); }); return nextHistory; });
       if (parsed.workouts.length) setCompleted((current) => { const byId = new Map(current.map((session) => [session.id, session])); parsed.workouts.forEach((session) => byId.set(session.id, session)); return Array.from(byId.values()).sort((left, right) => right.endedAt.localeCompare(left.endedAt)); });
       setImportResult({ kind: "success", message: `Imported ${parsed.sessions.length} lift record${parsed.sessions.length === 1 ? "" : "s"}${parsed.workouts.length ? ` and ${parsed.workouts.length} workouts` : ""}.` });

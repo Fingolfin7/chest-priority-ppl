@@ -13,7 +13,7 @@ A phone-first, chest-prioritized rolling Push/Pull/Legs workout tracker. The seq
 - Full-width bodyweight chart plus exercise-selectable recorded-volume and working-weight charts
 - Session frequency, recent lift history, and genuine load/rep milestones
 - Header-accessible Autumn connection modal and direct completed-session sync with idempotent retries
-- Workout-history export and restore in structured JSON or spreadsheet-ready CSV
+- Workout-history export and restore in structured JSON or spreadsheet-ready CSV, including workout timing, bodyweight, and notes
 - Light and dark themes with a remembered toggle
 - Installable PWA with offline workout access
 - Warm-up, progression, rest, and safety guidance
@@ -33,6 +33,8 @@ The dev server runs at `http://127.0.0.1:4173`, an origin already allowed by Aut
 Open **Autumn** from the header, connect with an Autumn username/password or API token, and choose the current gym project. The password is used only for sign-in and is never stored. The returned token stays in that browser and is excluded from Rolling PPL backups.
 
 The Progress tab plots up to 24 bodyweight readings. Volume is the sum of recorded numeric load × reps for each exercise session, while working weight is the heaviest completed set. Exercise selections are remembered per chart. Dumbbell values stay as entered (per dumbbell), and bodyweight/text loads are excluded from kilogram charts.
+
+Both JSON and current CSV backups restore workout-level bodyweight and notes. Older lift-only Rolling PPL CSV files remain importable; they simply contain no workout metadata to restore.
 
 Workouts are timed and completed locally first. **Sync to Autumn** then posts one completed session with the original start/end timestamps and a stable UUID, so an interrupted retry cannot create a duplicate.
 
