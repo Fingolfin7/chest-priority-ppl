@@ -11,7 +11,7 @@ import { nextStep, setTarget } from "./progression";
 import { availableChartExercises, bodyweightSeries, exerciseMetricSeries, type ExerciseSeries } from "./progressModel";
 import {
   WORKOUT_SEQUENCE, addWorkoutToHistory, completeWorkout, createActiveWorkout, elapsedLabel, liftMilestones,
-  migrateLegacyHistory, nextWorkout as followingWorkout, sessionsInLastDays, workoutDurationMinutes,
+  migrateLegacyHistory, nextWorkout as followingWorkout, selectedExerciseSets, sessionsInLastDays, workoutDurationMinutes,
   workoutSummary, type ActiveWorkout, type CompletedWorkout, type WorkoutKey,
 } from "./sessionModel";
 import "./styles.css";
@@ -38,6 +38,12 @@ const AUTUMN_KEY = "rolling-ppl-autumn-v1";
 const APP_VIEW_KEY = "rolling-ppl-app-view-v1";
 const VOLUME_EXERCISES_KEY = "rolling-ppl-volume-exercises-v1";
 const LOAD_EXERCISES_KEY = "rolling-ppl-load-exercises-v1";
+const CHECKPOINTS_KEY = "rolling-ppl-exercise-checkpoints-v1";
+
+type ExerciseCheckpoint = { workoutId: string; fingerprint: string };
+type CheckpointMap = Record<string, ExerciseCheckpoint>;
+type SaveResult = { ok: boolean; message: string };
+type FinishSummary = { exerciseCount: number; exerciseTotal: number; setCount: number; missingMust: string[]; unsaved: string[] };
 
 function readStored<T>(key: string, fallback: T): T {
   const value = localStorage.getItem(key);
@@ -47,8 +53,13 @@ function readStored<T>(key: string, fallback: T): T {
 }
 
 function storeLocal(key: string, value: unknown) {
-  try { localStorage.setItem(key, JSON.stringify(value)); }
-  catch { /* The app remains usable when storage is unavailable. */ }
+  try { localStorage.setItem(key, JSON.stringify(value)); return true; }
+  catch { return false; }
+}
+
+function exerciseFingerprint(entries: SetEntry[]) {
+  const result = selectedExerciseSets(entries);
+  return result.error || !result.sets.length ? "" : JSON.stringify(result.sets);
 }
 
 function isWorkoutKey(value: unknown): value is WorkoutKey { return value === "push" || value === "pull" || value === "legs"; }
@@ -114,30 +125,33 @@ function TrainingRail({ next, active, now, finishing, latest, syncBusy, onSetNex
   </section>;
 }
 
-function FinishWorkout({ workout, bodyweight, note, error, onBodyweight, onNote, onBack, onSave }: {
-  workout: WorkoutKey; bodyweight: string; note: string; error: string; onBodyweight: (value: string) => void; onNote: (value: string) => void; onBack: () => void; onSave: () => void;
+function FinishWorkout({ workout, bodyweight, note, error, summary, onBodyweight, onNote, onBack, onSave }: {
+  workout: WorkoutKey; bodyweight: string; note: string; error: string; summary: FinishSummary; onBodyweight: (value: string) => void; onNote: (value: string) => void; onBack: () => void; onSave: () => void;
 }) {
-  return <section className="finish-panel" aria-labelledby="finish-title"><div><span className="eyebrow">Finish {workout}</span><h2 id="finish-title">Close the session</h2><p>Both fields are optional. Your completed sets will form the Autumn note.</p></div><div className="finish-fields"><label><span>Bodyweight</span><div><input value={bodyweight} onChange={(event) => onBodyweight(event.target.value)} inputMode="decimal" placeholder="64.6" /><small>kg</small></div></label><label><span>Session note</span><textarea value={note} onChange={(event) => onNote(event.target.value)} rows={3} placeholder="How it felt, anything unusual…" /></label></div>{error && <p className="form-error" role="alert">{error}</p>}<div className="finish-actions"><button type="button" className="primary-action" onClick={onSave}>Save workout</button><button type="button" className="secondary-action" onClick={onBack}>Keep training</button></div></section>;
+  const warnings = [...(summary.missingMust.length ? [`No sets entered for ${summary.missingMust.join(", ")}.`] : []), ...(summary.unsaved.length ? [`Unchecked changes in ${summary.unsaved.join(", ")}.`] : [])];
+  return <section className="finish-panel" aria-labelledby="finish-title"><div><span className="eyebrow">Finish {workout}</span><h2 id="finish-title">Close the session</h2><p>Review what the app detected before saving and advancing.</p><div className="finish-summary"><strong>{summary.exerciseCount} of {summary.exerciseTotal} exercises</strong><span>{summary.setCount} work set{summary.setCount === 1 ? "" : "s"}</span></div>{warnings.length > 0 && <div className="finish-warning" role="status">{warnings.map((warning) => <p key={warning}>{warning}</p>)}<small>A shortened workout is allowed. Save only if this count is right.</small></div>}</div><div className="finish-fields"><label><span>Bodyweight</span><div><input value={bodyweight} onChange={(event) => onBodyweight(event.target.value)} inputMode="decimal" placeholder="64.6" /><small>kg</small></div></label><label><span>Session note</span><textarea value={note} onChange={(event) => onNote(event.target.value)} rows={3} placeholder="How it felt, anything unusual…" /></label></div>{error && <p className="form-error" role="alert">{error}</p>}<div className="finish-actions"><button type="button" className="primary-action" onClick={onSave}>Save workout</button><button type="button" className="secondary-action" onClick={onBack}>Keep training</button></div></section>;
 }
 
-function ExerciseRow({ exercise, index, onOpen, history, draft, enabled, onDraftChange }: {
-  exercise: Exercise; index: number; onOpen: (image: LightboxImage) => void; history: SavedSession[]; draft: SetEntry[]; enabled: boolean; onDraftChange: (entries: SetEntry[]) => void;
+function ExerciseRow({ exercise, index, onOpen, history, draft, enabled, checked, onDraftChange, onSave }: {
+  exercise: Exercise; index: number; onOpen: (image: LightboxImage) => void; history: SavedSession[]; draft: SetEntry[]; enabled: boolean; checked: boolean; onDraftChange: (entries: SetEntry[]) => void; onSave: (entries: SetEntry[]) => SaveResult;
 }) {
+  const [message, setMessage] = useState("");
   const range = setRange(exercise.sets);
   const entries = Array.from({ length: range.max }, (_, setIndex) => draft[setIndex] ?? { load: "", reps: "" });
   const previous = history[0];
-  const updateEntry = (setIndex: number, field: keyof SetEntry, value: string) => onDraftChange(entries.map((entry, entryIndex) => entryIndex === setIndex ? { ...entry, [field]: value } : entry));
+  const updateEntry = (setIndex: number, field: keyof SetEntry, value: string) => { onDraftChange(entries.map((entry, entryIndex) => entryIndex === setIndex ? { ...entry, [field]: value } : entry)); setMessage(checked ? "Unsaved changes." : ""); };
+  const save = () => { const result = onSave(entries); setMessage(result.message); };
   return <article className={`exercise-row ${exercise.priority} ${enabled ? "logging" : "reference"}`}>
     <div className={`demo-grid ${exercise.demos.length > 1 ? "has-options" : ""}`}>{exercise.demos.map((demo) => <DemoStrip key={demo.slug} demo={demo} exercise={exercise.name} onOpen={onOpen} />)}</div>
     <div className="exercise-info"><div className="exercise-title"><span>{index + 1}</span><h3>{exercise.name}</h3><strong className={`priority-badge ${exercise.priority}`}>{exercise.priority === "must" ? "Must do" : "If time"}</strong></div><div className="prescription"><strong>{exercise.sets}</strong><small>sets</small><i>×</i><strong>{exercise.reps}</strong><small>reps</small></div><p className="cue">{exercise.cue}</p><div className="exercise-meta"><span>Optional warm-up: {exercise.warmup}</span><span>Rest: {exercise.rest}</span><span>Start around 2 RIR</span></div>
-      <section className="set-tracker" aria-label={`Progressive overload log for ${exercise.name}`}><div className="tracker-heading"><div><h4>{enabled ? "Log work sets" : "Today's targets"}</h4><p>{enabled ? "Autosaved with this workout." : "Start this workout to enter sets."}</p></div>{previous && <div className="previous-session"><span>Previous</span><strong>{formatSession(previous)}</strong></div>}</div><div className="set-entries">{entries.map((entry, setIndex) => { const target = setTarget(exercise.reps, history, setIndex, range.min); return <div className="set-entry" key={setIndex}><div className="set-number">Set {setIndex + 1}{setIndex >= range.min && <small>optional</small>}</div><label><span>Load</span><input disabled={!enabled} className={target ? "has-target" : ""} value={entry.load} onChange={(event) => updateEntry(setIndex, "load", event.target.value)} inputMode="decimal" maxLength={12} placeholder={target?.load ?? "kg / BW"} aria-label={`${exercise.name} set ${setIndex + 1} load${target ? `, target ${target.load}` : ""}`} /></label><label><span>Reps</span><input disabled={!enabled} className={target ? "has-target" : ""} value={entry.reps} onChange={(event) => updateEntry(setIndex, "reps", event.target.value)} type="number" inputMode="numeric" min="0" max="99" placeholder={target?.reps ?? "0"} aria-label={`${exercise.name} set ${setIndex + 1} reps${target ? `, target ${target.reps}` : ""}`} /></label></div>; })}</div><div className="next-step"><span>Next target</span><strong>{nextStep(exercise.reps, history, range.min)}</strong></div>{history.length > 0 && <details className="history"><summary>History ({history.length})</summary><ol>{history.slice(0, 5).map((session) => <li key={session.id}><time dateTime={session.savedAt}>{new Date(session.savedAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}</time><span>{formatSession(session)}</span></li>)}</ol></details>}</section>
+      <section className={`set-tracker ${checked ? "checked" : ""}`} aria-label={`Progressive overload log for ${exercise.name}`}><div className="tracker-heading"><div><h4>{enabled ? "Log work sets" : "Today's targets"}</h4><p>{enabled ? "Entries recover automatically. Check each exercise when done." : "Start this workout to enter sets."}</p></div>{previous && <div className="previous-session"><span>Previous</span><strong>{formatSession(previous)}</strong></div>}</div><div className="set-entries">{entries.map((entry, setIndex) => { const target = setTarget(exercise.reps, history, setIndex, range.min); return <div className="set-entry" key={setIndex}><div className="set-number">Set {setIndex + 1}{setIndex >= range.min && <small>optional</small>}</div><label><span>Load{target && <em>Target {target.load}</em>}</span><input disabled={!enabled} value={entry.load} onChange={(event) => updateEntry(setIndex, "load", event.target.value)} inputMode="decimal" maxLength={12} placeholder="kg / BW" aria-label={`${exercise.name} set ${setIndex + 1} load${target ? `, target ${target.load}` : ""}`} /></label><label><span>Reps{target && <em>Target {target.reps}</em>}</span><input disabled={!enabled} value={entry.reps} onChange={(event) => updateEntry(setIndex, "reps", event.target.value)} type="number" inputMode="numeric" min="0" max="99" placeholder="reps" aria-label={`${exercise.name} set ${setIndex + 1} reps${target ? `, target ${target.reps}` : ""}`} /></label></div>; })}</div><div className="next-step"><span>Next target</span><strong>{nextStep(exercise.reps, history, range.min)}</strong></div>{enabled && <div className="tracker-actions"><button type="button" className={checked ? "checked" : ""} onClick={save}>{checked ? "Saved ✓" : "Save exercise"}</button><p className={checked && !message.startsWith("Unsaved") ? "save-message success" : "save-message"} aria-live="polite">{message || (checked ? "Checked and saved on this device." : "")}</p></div>}{history.length > 0 && <details className="history"><summary>History ({history.length})</summary><ol>{history.slice(0, 5).map((session) => <li key={session.id}><time dateTime={session.savedAt}>{new Date(session.savedAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}</time><span>{formatSession(session)}</span></li>)}</ol></details>}</section>
     </div>
   </article>;
 }
 
-function Workout({ workout, onOpen, history, drafts, enabled, onDraftChange }: { workout: WorkoutKey; onOpen: (image: LightboxImage) => void; history: HistoryMap; drafts: DraftMap; enabled: boolean; onDraftChange: (name: string, entries: SetEntry[]) => void }) {
+function Workout({ workout, onOpen, history, drafts, enabled, activeWorkoutId, checkpoints, onDraftChange, onSave }: { workout: WorkoutKey; onOpen: (image: LightboxImage) => void; history: HistoryMap; drafts: DraftMap; enabled: boolean; activeWorkoutId?: string; checkpoints: CheckpointMap; onDraftChange: (name: string, entries: SetEntry[]) => void; onSave: (name: string, entries: SetEntry[]) => SaveResult }) {
   const data = workouts[workout]; const mustDoCount = data.exercises.filter((exercise) => exercise.priority === "must").length; const optionalCount = data.exercises.length - mustDoCount;
-  return <section className={`workout ${workout}`} aria-labelledby={`${workout}-title`}><header className="workout-header"><div><h2 id={`${workout}-title`}>{workout}</h2><p>{data.summary}</p></div><span>{mustDoCount} must · {optionalCount} if time</span></header><p className="short-session"><strong>Minimum version:</strong> complete every Must do card when you can. A shortened session still advances the sequence.</p><div className="exercise-list">{data.exercises.map((exercise, index) => <Fragment key={exercise.name}>{index === mustDoCount && <div className="optional-divider"><span>If time</span><p>Useful additions, already ranked. Stop whenever you need to.</p></div>}<ExerciseRow exercise={exercise} index={index} onOpen={onOpen} history={history[exercise.name] ?? []} draft={drafts[exercise.name] ?? []} enabled={enabled} onDraftChange={(entries) => onDraftChange(exercise.name, entries)} /></Fragment>)}</div></section>;
+  return <section className={`workout ${workout}`} aria-labelledby={`${workout}-title`}><header className="workout-header"><div><h2 id={`${workout}-title`}>{workout}</h2><p>{data.summary}</p></div><span>{mustDoCount} must · {optionalCount} if time</span></header><p className="short-session"><strong>Minimum version:</strong> complete every Must do card when you can. A shortened session still advances the sequence.</p><div className="exercise-list">{data.exercises.map((exercise, index) => { const checked = Boolean(activeWorkoutId && checkpoints[exercise.name]?.workoutId === activeWorkoutId && checkpoints[exercise.name]?.fingerprint === exerciseFingerprint(drafts[exercise.name] ?? [])); return <Fragment key={exercise.name}>{index === mustDoCount && <div className="optional-divider"><span>If time</span><p>Useful additions, already ranked. Stop whenever you need to.</p></div>}<ExerciseRow exercise={exercise} index={index} onOpen={onOpen} history={history[exercise.name] ?? []} draft={drafts[exercise.name] ?? []} enabled={enabled} checked={checked} onDraftChange={(entries) => onDraftChange(exercise.name, entries)} onSave={(entries) => onSave(exercise.name, entries)} /></Fragment>; })}</div></section>;
 }
 
 function compactNumber(value: number, unit: "kg" | "kg·reps") {
@@ -185,7 +199,7 @@ function ExerciseChart({ title, description, metric, history, storageKey }: { ti
     const bench = available.find((exercise) => exercise === "Barbell bench press"); return (bench ? [bench] : available.slice(0, 1));
   });
   const visible = selected.filter((exercise) => available.includes(exercise));
-  useEffect(() => storeLocal(storageKey, selected), [selected, storageKey]);
+  useEffect(() => { storeLocal(storageKey, selected); }, [selected, storageKey]);
   const series = exerciseMetricSeries(history, visible, metric);
   const unit = metric === "volume" ? "kg·reps" : "kg";
   return <article className="chart-card exercise-chart-card"><div className="chart-card-heading"><div><span className="eyebrow">{metric === "volume" ? "Work performed" : "Top set"}</span><h3>{title}</h3><p>{description}</p></div><ExercisePicker available={available} selected={visible} onChange={setSelected} /></div><LineChart series={series} unit={unit} emptyTitle={visible.length ? "No numeric loads for this selection." : "Choose an exercise to draw the line."} emptyHint={visible.length ? "Loads recorded as BW or text cannot be plotted in kilograms." : "Use the exercise picker above."} label={`${title} chart for ${visible.join(", ") || "no selected exercises"}`} />{metric === "volume" && <p className="chart-footnote">Recorded-load volume uses load × reps. Dumbbell values remain per dumbbell; BW and text loads are excluded.</p>}</article>;
@@ -240,6 +254,7 @@ function App() {
   const initialHistory = useMemo(() => canonicalizeHistory(readStored<HistoryMap>(HISTORY_KEY, {})), []);
   const [history, setHistory] = useState<HistoryMap>(initialHistory);
   const [drafts, setDrafts] = useState<DraftMap>(() => pruneCompletedDrafts(readStored<DraftMap>(DRAFTS_KEY, {}), initialHistory));
+  const [checkpoints, setCheckpoints] = useState<CheckpointMap>(() => readStored<CheckpointMap>(CHECKPOINTS_KEY, {}));
   const [completed, setCompleted] = useState<CompletedWorkout[]>(() => { const stored = readStored<CompletedWorkout[]>(WORKOUTS_KEY, []); return stored.length ? stored : migrateLegacyHistory(initialHistory, exerciseWorkouts); });
   const [activeWorkout, setActiveWorkout] = useState<ActiveWorkout | null>(() => readStored<ActiveWorkout | null>(ACTIVE_WORKOUT_KEY, null));
   const [next, setNext] = useState<WorkoutKey>(() => { const stored = readStored<unknown>(NEXT_WORKOUT_KEY, ""); if (isWorkoutKey(stored)) return stored; const sessions = readStored<CompletedWorkout[]>(WORKOUTS_KEY, []); if (sessions[0] && isWorkoutKey(sessions[0].workout)) return followingWorkout(sessions[0].workout); const legacy = migrateLegacyHistory(initialHistory, exerciseWorkouts); return legacy[0] ? followingWorkout(legacy[0].workout) : "push"; });
@@ -260,24 +275,37 @@ function App() {
   const [autumnBusy, setAutumnBusy] = useState(false);
   const [theme, setTheme] = useState<Theme>(() => { const saved = readStored<string>(THEME_KEY, ""); if (saved === "light" || saved === "dark") return saved; return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"; });
 
-  useEffect(() => storeLocal(HISTORY_KEY, history), [history]);
-  useEffect(() => storeLocal(DRAFTS_KEY, drafts), [drafts]);
-  useEffect(() => storeLocal(WORKOUTS_KEY, completed), [completed]);
-  useEffect(() => storeLocal(ACTIVE_WORKOUT_KEY, activeWorkout), [activeWorkout]);
-  useEffect(() => storeLocal(NEXT_WORKOUT_KEY, next), [next]);
-  useEffect(() => storeLocal(APP_VIEW_KEY, appView), [appView]);
-  useEffect(() => storeLocal(AUTUMN_KEY, autumn), [autumn]);
+  useEffect(() => { storeLocal(HISTORY_KEY, history); }, [history]);
+  useEffect(() => { storeLocal(DRAFTS_KEY, drafts); }, [drafts]);
+  useEffect(() => { storeLocal(CHECKPOINTS_KEY, checkpoints); }, [checkpoints]);
+  useEffect(() => { storeLocal(WORKOUTS_KEY, completed); }, [completed]);
+  useEffect(() => { storeLocal(ACTIVE_WORKOUT_KEY, activeWorkout); }, [activeWorkout]);
+  useEffect(() => { storeLocal(NEXT_WORKOUT_KEY, next); }, [next]);
+  useEffect(() => { storeLocal(APP_VIEW_KEY, appView); }, [appView]);
+  useEffect(() => { storeLocal(AUTUMN_KEY, autumn); }, [autumn]);
   useEffect(() => { document.documentElement.dataset.theme = theme; document.documentElement.style.colorScheme = theme; document.querySelector('meta[name="theme-color"]')?.setAttribute("content", theme === "dark" ? "#171d24" : "#f2f4f6"); storeLocal(THEME_KEY, theme); }, [theme]);
   useEffect(() => { if (!activeWorkout) return; const timer = window.setInterval(() => setNow(Date.now()), 1000); return () => window.clearInterval(timer); }, [activeWorkout]);
   useEffect(() => { const onPrompt = (event: Event) => { event.preventDefault(); setInstallPrompt(event as InstallPromptEvent); }; const onInstalled = () => setInstallPrompt(null); window.addEventListener("beforeinstallprompt", onPrompt); window.addEventListener("appinstalled", onInstalled); return () => { window.removeEventListener("beforeinstallprompt", onPrompt); window.removeEventListener("appinstalled", onInstalled); }; }, []);
 
   const installApp = async () => { if (!installPrompt) return; await installPrompt.prompt(); await installPrompt.userChoice; setInstallPrompt(null); };
   const updateDraft = (name: string, entries: SetEntry[]) => setDrafts((current) => ({ ...current, [name]: entries }));
+  const clearCheckpoints = (names: Set<string>) => setCheckpoints((current) => Object.fromEntries(Object.entries(current).filter(([name]) => !names.has(name))));
+  const saveExercise = (name: string, entries: SetEntry[]): SaveResult => {
+    if (!activeWorkout) return { ok: false, message: "Start this workout before saving." };
+    const result = selectedExerciseSets(entries);
+    if (result.error) return { ok: false, message: result.error };
+    if (!result.sets.length) return { ok: false, message: "Enter at least one completed set." };
+    const nextDrafts = { ...drafts, [name]: entries };
+    const nextCheckpoints = { ...checkpoints, [name]: { workoutId: activeWorkout.id, fingerprint: JSON.stringify(result.sets) } };
+    if (!storeLocal(DRAFTS_KEY, nextDrafts) || !storeLocal(CHECKPOINTS_KEY, nextCheckpoints)) return { ok: false, message: "This device could not save the exercise. Keep this page open and try again." };
+    setCheckpoints(nextCheckpoints);
+    return { ok: true, message: "Checked and saved on this device." };
+  };
   const startWorkout = () => { const active = createActiveWorkout(next); setActiveWorkout(active); setActiveTab(next); setAppView("train"); setNow(Date.now()); setFinishing(false); setFinishError(""); window.scrollTo({ top: 0, behavior: "smooth" }); };
   const cancelWorkout = () => {
     if (!activeWorkout || !window.confirm("Cancel this workout and clear its entered sets?")) return;
     const names = new Set(workouts[activeWorkout.workout].exercises.map((exercise) => exercise.name));
-    setDrafts((current) => Object.fromEntries(Object.entries(current).filter(([name]) => !names.has(name)))); setActiveWorkout(null); setFinishing(false);
+    setDrafts((current) => Object.fromEntries(Object.entries(current).filter(([name]) => !names.has(name)))); clearCheckpoints(names); setActiveWorkout(null); setFinishing(false);
   };
   const saveFinishedWorkout = () => {
     if (!activeWorkout) return;
@@ -286,7 +314,7 @@ function App() {
     const session = result.session;
     if (autumn.projectId && autumn.projectName) session.sync = { ...session.sync, projectId: autumn.projectId, projectName: autumn.projectName };
     setHistory((current) => addWorkoutToHistory(current, session)); setCompleted((current) => [session, ...current.filter((item) => item.id !== session.id)]);
-    const names = new Set(workouts[session.workout].exercises.map((exercise) => exercise.name)); setDrafts((current) => Object.fromEntries(Object.entries(current).filter(([name]) => !names.has(name))));
+    const names = new Set(workouts[session.workout].exercises.map((exercise) => exercise.name)); setDrafts((current) => Object.fromEntries(Object.entries(current).filter(([name]) => !names.has(name)))); clearCheckpoints(names);
     const following = followingWorkout(session.workout); setNext(following); setActiveTab(following); setActiveWorkout(null); setFinishing(false); setBodyweight(""); setSessionNote(""); setFinishError(""); window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
@@ -329,14 +357,26 @@ function App() {
 
   const latest = completed.find((session) => session.sync.status !== "legacy");
   const pending = completed.filter((session) => session.sync.status === "unsynced" || session.sync.status === "error" || session.sync.status === "syncing");
+  const finishSummary = useMemo<FinishSummary>(() => {
+    if (!activeWorkout) return { exerciseCount: 0, exerciseTotal: 0, setCount: 0, missingMust: [], unsaved: [] };
+    const definitions = workouts[activeWorkout.workout].exercises;
+    const entered = definitions.map((exercise) => ({ exercise, result: selectedExerciseSets(drafts[exercise.name] ?? []) })).filter(({ result }) => result.sets.length > 0);
+    return {
+      exerciseCount: entered.length,
+      exerciseTotal: definitions.length,
+      setCount: entered.reduce((sum, { result }) => sum + result.sets.length, 0),
+      missingMust: definitions.filter((exercise) => exercise.priority === "must" && !entered.some((item) => item.exercise.name === exercise.name)).map((exercise) => exercise.name),
+      unsaved: entered.filter(({ exercise, result }) => checkpoints[exercise.name]?.workoutId !== activeWorkout.id || checkpoints[exercise.name]?.fingerprint !== JSON.stringify(result.sets)).map(({ exercise }) => exercise.name),
+    };
+  }, [activeWorkout, checkpoints, drafts]);
   return <>
     <header className="app-header"><div className="app-brand"><h1>Rolling PPL</h1><p>Chest-prioritized · no weekly reset</p></div><nav className="primary-nav" aria-label="App sections"><button type="button" className={appView === "train" ? "active" : ""} aria-current={appView === "train" ? "page" : undefined} onClick={() => setAppView("train")}>Train{activeWorkout && <i aria-label="Workout in progress" />}</button><button type="button" className={appView === "progress" ? "active" : ""} aria-current={appView === "progress" ? "page" : undefined} onClick={() => setAppView("progress")}>Progress</button></nav><div className="header-actions"><button className="utility-button" type="button" onClick={() => setAutumnOpen(true)}>Autumn{pending.length > 0 && <b>{pending.length}</b>}</button><details className="export-menu"><summary aria-label="Export or import workout history">Data</summary><div className="export-panel"><span>Workout history</span><button type="button" disabled={!hasHistory} onClick={() => downloadHistory(history, completed, "json")}>JSON <small>Full backup</small></button><button type="button" disabled={!hasHistory} onClick={() => downloadHistory(history, completed, "csv")}>CSV <small>Spreadsheet</small></button><div className="export-separator" /><label className="import-button">Import <small>JSON or CSV</small><input className="file-input" type="file" accept=".json,.csv,application/json,text/csv" onChange={importHistory} /></label>{importResult && <p className={`import-result ${importResult.kind}`} role="status">{importResult.message}</p>}</div></details>{installPrompt && <button className="install-button" type="button" onClick={installApp}>Install</button>}<button className="theme-toggle" type="button" onClick={() => setTheme((current) => current === "dark" ? "light" : "dark")} aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}><span aria-hidden="true">{theme === "dark" ? "☀" : "☾"}</span></button></div></header>
     <main>
       {appView === "train" ? <><TrainingRail next={next} active={activeWorkout} now={now} finishing={finishing} latest={latest} syncBusy={autumnBusy} onSetNext={(workout) => { setNext(workout); setActiveTab(workout); }} onStart={startWorkout} onFinish={() => setFinishing(true)} onCancel={cancelWorkout} onSync={syncWorkout} />
-        {finishing && activeWorkout && <FinishWorkout workout={activeWorkout.workout} bodyweight={bodyweight} note={sessionNote} error={finishError} onBodyweight={setBodyweight} onNote={setSessionNote} onBack={() => { setFinishing(false); setFinishError(""); }} onSave={saveFinishedWorkout} />}
+        {finishing && activeWorkout && <FinishWorkout workout={activeWorkout.workout} bodyweight={bodyweight} note={sessionNote} error={finishError} summary={finishSummary} onBodyweight={setBodyweight} onNote={setSessionNote} onBack={() => { setFinishing(false); setFinishError(""); }} onSave={saveFinishedWorkout} />}
         <div className="workout-tabs" role="tablist" aria-label="Choose a workout to view">{WORKOUT_SEQUENCE.map((key) => <button key={key} role="tab" aria-selected={activeTab === key} className={activeTab === key ? `active ${key}` : ""} onClick={() => setActiveTab(key)}>{key}<small>{activeWorkout?.workout === key ? "logging now" : `${workouts[key].exercises.length} exercises`}</small></button>)}</div>
-        <p className="storage-note">Sets autosave on this device. Finish once; sync to Autumn when ready.</p>
-        <Workout workout={activeTab} onOpen={setLightbox} history={history} drafts={drafts} enabled={activeWorkout?.workout === activeTab && !finishing} onDraftChange={updateDraft} /><Notes /></>
+        <p className="storage-note">Entries recover automatically. Save each exercise when done; finish once.</p>
+        <Workout workout={activeTab} onOpen={setLightbox} history={history} drafts={drafts} enabled={activeWorkout?.workout === activeTab && !finishing} activeWorkoutId={activeWorkout?.workout === activeTab ? activeWorkout.id : undefined} checkpoints={checkpoints} onDraftChange={updateDraft} onSave={saveExercise} /><Notes /></>
         : <Progress sessions={completed} history={history} />}
     </main>
     <footer><p><strong>Rolling PPL</strong> · Keep the sequence; skip the weekly reset.</p><p>Exercise imagery from the public-domain <a href="https://github.com/yuhonas/free-exercise-db" target="_blank" rel="noreferrer">Free Exercise DB</a> (Unlicense).</p></footer>

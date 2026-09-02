@@ -6,6 +6,7 @@ import {
   liftMilestones,
   migrateLegacyHistory,
   nextWorkout,
+  selectedExerciseSets,
   workoutSummary,
 } from "../src/sessionModel.ts";
 
@@ -46,6 +47,21 @@ test("rejects a partially entered set without manufacturing missing work", () =>
     endedAt: "2026-08-23T06:00:00.000Z",
   });
   assert.match(result.error, /valid rep count/);
+});
+
+test("normalizes the entered sets used by exercise checkpoints", () => {
+  assert.deepEqual(selectedExerciseSets([
+    { load: " 55 ", reps: "10" },
+    { load: "", reps: "" },
+    { load: "60", reps: "8" },
+  ]), {
+    sets: [],
+    error: "Every entered set needs a valid rep count.",
+  });
+  assert.deepEqual(selectedExerciseSets([{ load: " 10 ", reps: " 8 " }, { load: "10", reps: "10" }]), {
+    sets: [{ load: "10", reps: "8" }, { load: "10", reps: "10" }],
+    error: "",
+  });
 });
 
 test("builds readable Autumn prose and labels per-dumbbell loads", () => {

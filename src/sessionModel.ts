@@ -53,7 +53,7 @@ export function createActiveWorkout(workout: WorkoutKey, startedAt = new Date().
   return { id, workout, startedAt };
 }
 
-function selectedSets(entries: SetEntry[]) {
+export function selectedExerciseSets(entries: SetEntry[]) {
   let lastUsed = -1;
   entries.forEach((entry, index) => {
     if (entry.load.trim() || entry.reps.trim()) lastUsed = index;
@@ -95,7 +95,7 @@ export function completeWorkout({
 
   const exercises: CompletedExercise[] = [];
   for (const definition of definitions) {
-    const result = selectedSets(drafts[definition.name] ?? []);
+    const result = selectedExerciseSets(drafts[definition.name] ?? []);
     if (result.error) return { error: `${definition.name}: ${result.error}` };
     if (result.sets.length) exercises.push({ ...definition, sets: result.sets });
   }
