@@ -22,8 +22,6 @@ button, summary { font:inherit; } a { color:inherit; } :focus-visible { outline:
 .destination-mark { width:25px; height:25px; display:grid; place-items:center; border-radius:6px; color:var(--push-soft-ink); background:var(--push-soft); font:750 .72rem/1 var(--sans); }
 .destination-mark.drive,.destination-mark.whatsapp { color:var(--legs-soft-ink); background:var(--legs-soft); }
 .destination-mark.chatgpt { color:var(--ink); background:var(--surface); border:1px solid var(--line); }
-.export-panel .transfer-link { min-height:44px; padding:.5rem .6rem; display:flex; align-items:center; justify-content:space-between; gap:.5rem; color:var(--push-soft-ink); border:1px solid var(--line); border-radius:6px; font:650 .78rem/1.3 var(--sans); text-decoration:none; }
-.transfer-link:hover { background:var(--soft); }
 .transfer-paste { display:grid; gap:.35rem; margin:.3rem .35rem; color:var(--muted); font-size:.72rem; }
 .transfer-paste textarea { width:100%; min-height:150px; resize:vertical; padding:.6rem; color:var(--ink); background:var(--input); border:1px solid var(--input-line); border-radius:6px; font:400 .72rem/1.5 var(--mono); }
 main,footer { width:min(980px,calc(100% - 2rem)); margin-inline:auto; }

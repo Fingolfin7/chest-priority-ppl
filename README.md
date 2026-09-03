@@ -38,7 +38,7 @@ Both JSON and current CSV backups restore workout-level bodyweight and notes. Ol
 
 Under **Data**, choose **Export to** or **Import from**. Export destinations include download, Google Drive, OneDrive, WhatsApp, ChatGPT, clipboard, and the device share sheet (for email, AirDrop, and other installed apps). Choose JSON for a full backup including sync receipts, or CSV for spreadsheets.
 
-Destination pages offer the device share sheet and a download/open-app workflow. They do not connect cloud accounts or automatically upload files; available share targets depend on the device. If a browser cannot share JSON directly, the share sheet receives the same backup as `.json.txt`, which this app can import without renaming. Import from a cloud provider in the device file picker, a downloaded attachment, or pasted JSON/CSV. Imports merge by record ID and preserve unrelated history.
+Tapping an export app immediately opens the device share sheet, where you select the installed app. Browsers cannot preselect a share target, and available apps depend on the device and file type. No transfer option opens a provider website. When file sharing is unavailable, use Download or Copy to clipboard and attach or paste the backup in the app. If a browser cannot share JSON directly, the share sheet receives the same backup as `.json.txt`, which this app can import without renaming. Import from a cloud provider in the device file picker, a saved attachment, or pasted JSON/CSV. Imports merge by record ID and preserve unrelated history.
 
 Workouts are timed and completed locally first. **Sync to Autumn** then posts one completed session with the original start/end timestamps and a stable UUID, so an interrupted retry cannot create a duplicate.
 

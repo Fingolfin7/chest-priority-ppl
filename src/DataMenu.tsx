@@ -4,10 +4,10 @@ import type { CompletedWorkout } from "./sessionModel";
 import { createBackupFile, createBackupText, downloadBackup, shareableBackup, type ExportFormat } from "./transfer";
 
 const destinations = {
-  drive: { label: "Google Drive", mark: "G", url: "https://drive.google.com/", exportHint: "Upload the downloaded backup to your Drive.", importHint: "Choose Google Drive in your file picker. If it is missing, download your backup from Drive first." },
-  onedrive: { label: "OneDrive", mark: "O", url: "https://onedrive.live.com/", exportHint: "Upload the downloaded backup to OneDrive.", importHint: "Choose OneDrive in your file picker. If it is missing, download your backup from OneDrive first." },
-  whatsapp: { label: "WhatsApp", mark: "W", url: "https://web.whatsapp.com/", exportHint: "Attach the downloaded backup as a document in a chat, or send it to yourself.", importHint: "Save the backup attachment from your WhatsApp chat, then choose it here." },
-  chatgpt: { label: "ChatGPT", mark: "C", url: "https://chatgpt.com/", exportHint: "Attach the downloaded backup to a ChatGPT conversation, or copy its contents and paste them there.", importHint: "Download a Rolling PPL JSON or CSV backup from your conversation, then choose it here. You can also paste the backup contents." },
+  drive: { label: "Google Drive", mark: "G", importHint: "Choose Google Drive in your file picker. If it is missing, save your backup to this device from the Drive app first." },
+  onedrive: { label: "OneDrive", mark: "O", importHint: "Choose OneDrive in your file picker. If it is missing, save your backup to this device from the OneDrive app first." },
+  whatsapp: { label: "WhatsApp", mark: "W", importHint: "Save the backup attachment from your WhatsApp chat, then choose it here." },
+  chatgpt: { label: "ChatGPT", mark: "C", importHint: "Save a Rolling PPL JSON or CSV backup from your ChatGPT conversation to this device, then choose it here. You can also paste the backup contents." },
 } as const;
 type Destination = keyof typeof destinations;
 type Notice = { kind: "success" | "error" | "info"; message: string } | null;
@@ -54,20 +54,21 @@ export function DataMenu({ history, workouts, onImport }: {
     try {
       const file = createBackupFile(history, workouts, format);
       downloadBackup(file);
-      setNotice({ kind: "info", message: `Download started: ${file.name}${selected ? `. ${selected.exportHint}` : ""}` });
+      setNotice({ kind: "info", message: `Download started: ${file.name}` });
     } catch { setNotice({ kind: "error", message: "The download could not start. Try copying the backup instead." }); }
   };
-  const share = async () => {
-    setNotice(null); setBusy(true);
+  const share = async (target?: Destination) => {
+    const app = target ? destinations[target].label : "an app";
+    setNotice({ kind: "info", message: `Choose ${app} in your device’s share sheet.` }); setBusy(true); setCopyFallback("");
     try {
       const file = createBackupFile(history, workouts, format);
       const shareFile = typeof navigator.share === "function" && typeof navigator.canShare === "function" ? shareableBackup(file, (data) => navigator.canShare(data)) : null;
       if (!shareFile) {
-        setNotice({ kind: "info", message: "File sharing is unavailable here. Download the backup, then upload or attach it in your chosen app." });
+        setNotice({ kind: "info", message: "This browser cannot share backup files with installed apps. Use Download or Copy to clipboard below, then attach or paste the backup in the app." });
         return;
       }
       await navigator.share({ files: [shareFile], title: "Rolling PPL workout history" });
-      setNotice({ kind: "info", message: "Share sheet opened. Complete the transfer in your chosen app." });
+      setNotice({ kind: "info", message: `Choose ${app} in the share sheet to complete the transfer. If it is missing, use Download or Copy to clipboard and attach or paste the backup in the app.` });
     } catch (error) {
       setNotice({ kind: "info", message: error instanceof Error && error.name === "AbortError"
         ? "Sharing canceled or no app available. You can try again or download the backup."
@@ -114,20 +115,12 @@ export function DataMenu({ history, workouts, onImport }: {
           <option value="json">JSON · full backup</option><option value="csv">CSV · spreadsheet</option>
         </select></label>
         {!hasHistory && <p>Save a workout to export your history.</p>}
-        {selected ? <>
-          <p>Choose {selected.label} in your device’s share sheet, if available. Otherwise, download the file and open {selected.label}.</p>
-          <p>{selected.exportHint}</p>
-          <button type="button" disabled={!hasHistory || busy} onClick={share}>Choose {selected.label}… <small>Share sheet</small></button>
-          <button type="button" disabled={!hasHistory || busy} onClick={download}>Download file <small>{format.toUpperCase()}</small></button>
-          <a className="transfer-link" href={selected.url} target="_blank" rel="noopener noreferrer">Open {selected.label} <span aria-hidden="true">↗</span></a>
-          {destination === "chatgpt" && <button type="button" disabled={!hasHistory || busy} onClick={copy}>Copy to clipboard</button>}
-        </> : <>
+          <p>App options open your device’s share sheet. Select the installed app there.</p>
           <button type="button" disabled={!hasHistory || busy} onClick={download}>Download <small>Save to device</small></button>
-          {Object.entries(destinations).map(([key, item]) => <button className="transfer-destination" type="button" key={key} disabled={!hasHistory || busy} onClick={() => choose(key as Destination)}><span className={`destination-mark ${key}`} aria-hidden="true">{item.mark}</span><span>{item.label}</span><small>Share / file</small></button>)}
+          {Object.entries(destinations).map(([key, item]) => <button className="transfer-destination" type="button" key={key} disabled={!hasHistory || busy} onClick={() => share(key as Destination)}><span className={`destination-mark ${key}`} aria-hidden="true">{item.mark}</span><span>{item.label}</span><small>Share sheet</small></button>)}
           <div className="export-separator" />
           <button type="button" disabled={!hasHistory || busy} onClick={copy}>Copy to clipboard <small>Backup text</small></button>
-          <button type="button" disabled={!hasHistory || busy} onClick={share}>More apps… <small>Email, AirDrop & more</small></button>
-        </>}
+          <button type="button" disabled={!hasHistory || busy} onClick={() => share()}>More apps… <small>Email, AirDrop & more</small></button>
         {copyFallback && <label className="transfer-paste">Backup to copy<textarea readOnly value={copyFallback} onFocus={(event) => event.currentTarget.select()} /></label>}
       </> : <>
         <p>Restore a Rolling PPL JSON or CSV backup. Matching records are updated; other history is kept.</p>
@@ -137,7 +130,6 @@ export function DataMenu({ history, workouts, onImport }: {
         </> : selected ? <>
           <p>{selected.importHint}</p>
           <button type="button" disabled={busy} onClick={() => input.current?.click()}>Choose backup file</button>
-          <a className="transfer-link" href={selected.url} target="_blank" rel="noopener noreferrer">Open {selected.label} <span aria-hidden="true">↗</span></a>
           <button type="button" disabled={busy} onClick={() => choose("paste")}>Paste backup contents</button>
         </> : <>
           <button type="button" disabled={busy} onClick={() => input.current?.click()}>This device <small>Choose file</small></button>
