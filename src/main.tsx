@@ -1,10 +1,11 @@
-import { Fragment, StrictMode, useEffect, useMemo, useState, type ChangeEvent, type FormEvent, type MouseEvent, type ReactNode } from "react";
+import { Fragment, StrictMode, useEffect, useMemo, useState, type FormEvent, type MouseEvent, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import {
   DEFAULT_AUTUMN_URL, defaultAutumnSettings, getAutumnAccount, listAutumnProjects,
   pushWorkoutToAutumn, signInToAutumn, type AutumnProject, type AutumnSettings,
 } from "./autumn";
-import { createCsvBackup, createJsonBackup, parseCsvBackup, parseJsonBackup } from "./backup";
+import { DataMenu } from "./DataMenu";
+import { parseBackupText } from "./transfer";
 import { pruneCompletedDrafts, type DraftMap } from "./drafts";
 import { canonicalizeHistory, type HistoryMap, type SavedSession, type SetEntry } from "./historyMigration";
 import { nextStep, setTarget } from "./progression";
@@ -24,8 +25,6 @@ type Exercise = {
   priority: "must" | "optional"; loadSuffix?: string; demos: Demo[];
 };
 type LightboxImage = { src: string; alt: string };
-type ExportFormat = "json" | "csv";
-type ImportResult = { kind: "success" | "error"; message: string } | null;
 type InstallPromptEvent = Event & { prompt: () => Promise<void>; userChoice: Promise<{ outcome: "accepted" | "dismissed" }> };
 
 const HISTORY_KEY = "rolling-ppl-history-v1";
@@ -63,16 +62,6 @@ function exerciseFingerprint(entries: SetEntry[]) {
 }
 
 function isWorkoutKey(value: unknown): value is WorkoutKey { return value === "push" || value === "pull" || value === "legs"; }
-
-function downloadHistory(history: HistoryMap, completedWorkouts: CompletedWorkout[], format: ExportFormat) {
-  const dateStamp = new Date().toISOString().slice(0, 10);
-  const content = format === "json" ? createJsonBackup(history, completedWorkouts) : createCsvBackup(history, completedWorkouts);
-  const mimeType = format === "json" ? "application/json;charset=utf-8" : "text/csv;charset=utf-8";
-  const url = URL.createObjectURL(new Blob([content], { type: mimeType }));
-  const link = document.createElement("a");
-  link.href = url; link.download = `rolling-ppl-history-${dateStamp}.${format}`; document.body.append(link); link.click(); link.remove();
-  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
-}
 
 function setRange(value: string) { const values = value.match(/\d+/g)?.map(Number) ?? [1]; return { min: values[0], max: values.at(-1) ?? values[0] }; }
 function formatSession(session: SavedSession) { return session.sets.map((entry) => `${entry.load.trim() || "BW"} × ${entry.reps}`).join(" · "); }
@@ -267,7 +256,6 @@ function App() {
   const [sessionNote, setSessionNote] = useState("");
   const [finishError, setFinishError] = useState("");
   const [now, setNow] = useState(0);
-  const [importResult, setImportResult] = useState<ImportResult>(null);
   const [installPrompt, setInstallPrompt] = useState<InstallPromptEvent | null>(null);
   const [autumn, setAutumn] = useState<AutumnSettings>(() => ({ ...defaultAutumnSettings(), ...readStored<Partial<AutumnSettings>>(AUTUMN_KEY, {}) }));
   const [autumnProjects, setAutumnProjects] = useState<AutumnProject[]>([]);
@@ -343,16 +331,11 @@ function App() {
     finally { setAutumnBusy(false); }
   };
 
-  const hasHistory = Object.values(history).some((sessions) => sessions.length > 0);
-  const importHistory = async (event: ChangeEvent<HTMLInputElement>) => {
-    const input = event.currentTarget; const file = input.files?.[0]; if (!file) return;
-    try {
-      const text = await file.text(); const parsed = file.name.toLowerCase().endsWith(".csv") ? parseCsvBackup(text) : parseJsonBackup(text);
+  const importHistory = (text: string) => {
+      const parsed = parseBackupText(text);
       setHistory((current) => { const nextHistory: HistoryMap = { ...current }; parsed.sessions.forEach((session) => { const restored = { id: session.sessionId, savedAt: session.performedAt, sets: session.sets.map(({ load, reps }) => ({ load, reps })) }; const byId = new Map((nextHistory[session.exercise] ?? []).map((saved) => [saved.id, saved])); byId.set(restored.id, restored); nextHistory[session.exercise] = Array.from(byId.values()).sort((left, right) => right.savedAt.localeCompare(left.savedAt)); }); return nextHistory; });
       if (parsed.workouts.length) setCompleted((current) => { const byId = new Map(current.map((session) => [session.id, session])); parsed.workouts.forEach((session) => byId.set(session.id, session)); return Array.from(byId.values()).sort((left, right) => right.endedAt.localeCompare(left.endedAt)); });
-      setImportResult({ kind: "success", message: `Imported ${parsed.sessions.length} lift record${parsed.sessions.length === 1 ? "" : "s"}${parsed.workouts.length ? ` and ${parsed.workouts.length} workouts` : ""}.` });
-    } catch (error) { setImportResult({ kind: "error", message: error instanceof Error ? error.message : "The file could not be read." }); }
-    finally { input.value = ""; }
+      return `Imported ${parsed.sessions.length} lift record${parsed.sessions.length === 1 ? "" : "s"}${parsed.workouts.length ? ` and ${parsed.workouts.length} workouts` : ""}.`;
   };
 
   const latest = completed.find((session) => session.sync.status !== "legacy");
@@ -370,7 +353,7 @@ function App() {
     };
   }, [activeWorkout, checkpoints, drafts]);
   return <>
-    <header className="app-header"><div className="app-brand"><h1>Rolling PPL</h1><p>Chest-prioritized · no weekly reset</p></div><nav className="primary-nav" aria-label="App sections"><button type="button" className={appView === "train" ? "active" : ""} aria-current={appView === "train" ? "page" : undefined} onClick={() => setAppView("train")}>Train{activeWorkout && <i aria-label="Workout in progress" />}</button><button type="button" className={appView === "progress" ? "active" : ""} aria-current={appView === "progress" ? "page" : undefined} onClick={() => setAppView("progress")}>Progress</button></nav><div className="header-actions"><button className="utility-button" type="button" onClick={() => setAutumnOpen(true)}>Autumn{pending.length > 0 && <b>{pending.length}</b>}</button><details className="export-menu"><summary aria-label="Export or import workout history">Data</summary><div className="export-panel"><span>Workout history</span><button type="button" disabled={!hasHistory} onClick={() => downloadHistory(history, completed, "json")}>JSON <small>Full backup</small></button><button type="button" disabled={!hasHistory} onClick={() => downloadHistory(history, completed, "csv")}>CSV <small>Spreadsheet</small></button><div className="export-separator" /><label className="import-button">Import <small>JSON or CSV</small><input className="file-input" type="file" accept=".json,.csv,application/json,text/csv" onChange={importHistory} /></label>{importResult && <p className={`import-result ${importResult.kind}`} role="status">{importResult.message}</p>}</div></details>{installPrompt && <button className="install-button" type="button" onClick={installApp}>Install</button>}<button className="theme-toggle" type="button" onClick={() => setTheme((current) => current === "dark" ? "light" : "dark")} aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}><span aria-hidden="true">{theme === "dark" ? "☀" : "☾"}</span></button></div></header>
+    <header className="app-header"><div className="app-brand"><h1>Rolling PPL</h1><p>Chest-prioritized · no weekly reset</p></div><nav className="primary-nav" aria-label="App sections"><button type="button" className={appView === "train" ? "active" : ""} aria-current={appView === "train" ? "page" : undefined} onClick={() => setAppView("train")}>Train{activeWorkout && <i aria-label="Workout in progress" />}</button><button type="button" className={appView === "progress" ? "active" : ""} aria-current={appView === "progress" ? "page" : undefined} onClick={() => setAppView("progress")}>Progress</button></nav><div className="header-actions"><button className="utility-button" type="button" onClick={() => setAutumnOpen(true)}>Autumn{pending.length > 0 && <b>{pending.length}</b>}</button><DataMenu history={history} workouts={completed} onImport={importHistory} />{installPrompt && <button className="install-button" type="button" onClick={installApp}>Install</button>}<button className="theme-toggle" type="button" onClick={() => setTheme((current) => current === "dark" ? "light" : "dark")} aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}><span aria-hidden="true">{theme === "dark" ? "☀" : "☾"}</span></button></div></header>
     <main>
       {appView === "train" ? <><TrainingRail next={next} active={activeWorkout} now={now} finishing={finishing} latest={latest} syncBusy={autumnBusy} onSetNext={(workout) => { setNext(workout); setActiveTab(workout); }} onStart={startWorkout} onFinish={() => setFinishing(true)} onCancel={cancelWorkout} onSync={syncWorkout} />
         {finishing && activeWorkout && <FinishWorkout workout={activeWorkout.workout} bodyweight={bodyweight} note={sessionNote} error={finishError} summary={finishSummary} onBodyweight={setBodyweight} onNote={setSessionNote} onBack={() => { setFinishing(false); setFinishError(""); }} onSave={saveFinishedWorkout} />}
