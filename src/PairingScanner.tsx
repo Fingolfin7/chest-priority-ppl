@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import jsQR from "jsqr";
 import { parseInvitation } from "./peerSyncCrypto.ts";
+import { nativeQrDetector, readQrFrame, type QrDetector } from "./qrFrame.ts";
 
 export function PairingScanner({ onScan, onCancel }: { onScan: (invitation: string) => void; onCancel: () => void }) {
   const video = useRef<HTMLVideoElement>(null);
@@ -15,6 +15,7 @@ export function PairingScanner({ onScan, onCancel }: { onScan: (invitation: stri
     const element = video.current!;
     const canvas = document.createElement("canvas");
     const context = canvas.getContext("2d", { willReadFrequently: true });
+    let detector: QrDetector | undefined;
     let previousCode = "";
     const stop = () => {
       stopped = true; clearTimeout(timer);
@@ -25,18 +26,14 @@ export function PairingScanner({ onScan, onCancel }: { onScan: (invitation: stri
       if (stopped) return;
       try {
         if (element.readyState >= 2 && element.videoWidth && context) {
-          const scale = Math.min(1, 960 / element.videoWidth);
-          canvas.width = Math.round(element.videoWidth * scale);
-          canvas.height = Math.round(element.videoHeight * scale);
-          context.drawImage(element, 0, 0, canvas.width, canvas.height);
-          const pixels = context.getImageData(0, 0, canvas.width, canvas.height);
-          const code = jsQR(pixels.data, pixels.width, pixels.height, { inversionAttempts: "dontInvert" });
-          if (code?.data && code.data !== previousCode) {
-            previousCode = code.data;
+          const code = await readQrFrame(element, canvas, context, detector);
+          if (stopped) return;
+          if (code && code !== previousCode) {
+            previousCode = code;
             try {
-              await parseInvitation(code.data);
+              await parseInvitation(code);
               if (stopped) return;
-              stop(); callbacks.current.onScan(code.data); return;
+              stop(); callbacks.current.onScan(code); return;
             } catch (cause) {
               if (!stopped) setStatus(cause instanceof Error && cause.message.includes("expired") ? "This code expired. Show a new QR on your other device." : "Point at the QR shown in Rolling PPL → Devices.");
             }
@@ -50,12 +47,13 @@ export function PairingScanner({ onScan, onCancel }: { onScan: (invitation: stri
     const start = async () => {
       try {
         if (!navigator.mediaDevices?.getUserMedia || !context) throw new Error("unsupported");
-        stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: { ideal: "environment" }, width: { ideal: 1280 }, height: { ideal: 720 } } });
+        stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: { ideal: "environment" }, width: { ideal: 1920 }, height: { ideal: 1080 } } });
         if (stopped) { stream.getTracks().forEach((track) => track.stop()); return; }
         element.srcObject = stream;
         await element.play();
+        detector = await nativeQrDetector();
         if (stopped) return;
-        setStatus("Point at your other device’s QR. They will link automatically.");
+        setStatus("Center the QR in the frame. Move closer if needed; linking is automatic.");
         void scan();
       } catch (cause) {
         if (stopped) return;

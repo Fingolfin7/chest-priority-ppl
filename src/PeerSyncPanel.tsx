@@ -75,9 +75,10 @@ export function PeerSyncPanel({ manager }: { manager: PeerSyncManager }) {
       Devices{state.conflicts.length > 0 && <b>{state.conflicts.length}</b>}{state.request && <b>!</b>}
     </button>
     <dialog ref={dialog} className="peer-dialog" aria-labelledby="peer-sync-title" onCancel={close} onClose={close}>
-      <div className="peer-panel">
+      <div className={`peer-panel${scanning ? " peer-scanning" : ""}`}>
         <button className="peer-close secondary-action" type="button" aria-label="Close device sync" onClick={close}>Close ×</button>
-        <span className="eyebrow">Your browsers, connected</span><h2 id="peer-sync-title">Device sync</h2>
+        {!scanning && <span className="eyebrow">Your browsers, connected</span>}<h2 id="peer-sync-title">{scanning ? "Scan QR code" : "Device sync"}</h2>
+        {scanning ? <PairingScanner onCancel={() => setScanning(false)} onScan={(invitation) => { setScanning(false); void run(() => join(invitation)); }} /> : <>
         <p>Show a QR on one device and scan it here to link automatically. Keep both pages open to sync.</p>
         <div className="peer-status" data-testid="peer-sync-status" role="status">
           <strong>{state.enabled ? (state.devices.some((device) => device.connected) ? "Connected to your devices" : "Waiting for a paired browser") : "Saved in this browser"}</strong>
@@ -93,7 +94,6 @@ export function PeerSyncPanel({ manager }: { manager: PeerSyncManager }) {
           <button className="primary-action" type="button" disabled={busy || scanning} onClick={() => { manager.cancelInvite(); setMessage(""); setScanning(true); }}>Scan QR code</button>
           <button className="secondary-action" type="button" disabled={busy} onClick={() => { setScanning(false); void run(async () => { await manager.createInvite(); if (!dialog.current?.open) manager.cancelInvite(); }); }}>Show my QR</button>
         </div>
-        {scanning && <PairingScanner onCancel={() => setScanning(false)} onScan={(invitation) => { setScanning(false); void run(() => join(invitation)); }} />}
         <div className="peer-actions peer-connection-actions">
           {state.enabled ? <><button className="secondary-action" type="button" disabled={busy} onClick={() => manager.reconnect()}>Sync now</button><button className="text-action" type="button" disabled={busy} onClick={() => void run(() => manager.pause())}>Pause sync</button></>
             : state.devices.length > 0 && <button className="secondary-action" type="button" disabled={busy} onClick={() => void run(() => manager.enable())}>Resume sync</button>}
@@ -125,6 +125,7 @@ export function PeerSyncPanel({ manager }: { manager: PeerSyncManager }) {
           {state.conflicts.map((conflict) => <article key={conflict.key} data-testid="sync-conflict"><strong>{conflict.label}</strong><div>{conflict.options.map((option) => <button className="secondary-action" type="button" key={option.id} onClick={() => manager.resolve(conflict.key, option.id)}>Use {option.value || "empty value"}</button>)}</div></article>)}
         </section>}
         <details className="peer-details"><summary>How device sync works</summary><p>Only explicitly paired browsers can exchange workout history, active workouts, entered sets, notes, and your next workout. Autumn passwords and API tokens stay in their own browser.</p><p>Connection setup uses PeerJS Cloud and STUN. Workout transfers are encrypted between your browsers. Some restricted or mobile networks cannot establish a direct connection; try opening both pages on the same Wi-Fi.</p><p>Pair each browser with at least one of your devices. Changes can travel through a paired device when they connect at different times. A device cannot receive new data while all browsers with those changes are closed.</p><p>Removing a device stops future sync after the removal reaches each paired browser. It cannot erase copies already received. Export backups remain available under Data.</p><p>If this browser was removed while offline, reset its pairing before adding it again. Workouts are kept.</p><button className="secondary-action" type="button" disabled={busy} onClick={() => { if (window.confirm("Reset this browser's pairing identity? Your workouts stay here, but you will need to pair your devices again.")) void run(() => manager.resetPairing()); }}>Reset browser pairing</button></details>
+        </>}
       </div>
     </dialog>
   </>;

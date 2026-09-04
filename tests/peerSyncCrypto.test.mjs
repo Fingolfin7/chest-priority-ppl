@@ -9,3 +9,15 @@ test('ciphertext hides workout data and rejects unauthorized private keys',async
 test('tampering, sequence changes, reflection and replay are rejected',async()=>{const {send,receive}=await peers(),frame=await send.seal({reps:8}),altered=decodeBytes(frame.data);altered[0]^=1;await assert.rejects(receive.open({...frame,data:encodeBytes(altered)}));await assert.rejects(receive.open({...frame,seq:1}),/out-of-order/);await assert.rejects(send.open(frame));assert.deepEqual(await receive.open(frame),{reps:8});await assert.rejects(receive.open(frame),/Replayed/);});
 test('parallel delivery accepts a frame at most once',async()=>{const {send,receive}=await peers(),frame=await send.seal({reps:8}),results=await Promise.allSettled([receive.open(frame),receive.open(frame)]);assert.equal(results.filter(r=>r.status==='fulfilled').length,1);assert.equal(results.filter(r=>r.status==='rejected').length,1);});
 test('new sessions reject old connection frames and oversized payloads',async()=>{const {alice,bob,send}=await peers(),frame=await send.seal({reps:8}),fresh=await createSecureChannel(bob,alice.publicKey,randomToken(),randomToken());await assert.rejects(fresh.open(frame));await assert.rejects(send.seal({oversized:'x'.repeat(40000)}),/too large/);await assert.rejects(createSecureChannel(alice,alice.publicKey,randomToken(),randomToken()),/itself/);});
+
+test('compact camera invitations retain the full key and secret and accept older links',async()=>{
+  const identity=await createIdentity(),now=Date.now(),compact=createInvitation(identity,now);
+  assert.ok(compact.length<150);
+  const invite=await parseInvitation(compact,now);
+  assert.equal(invite.id,identity.id);assert.equal(invite.publicKey,identity.publicKey);
+  assert.equal(decodeBytes(invite.secret,32).length,32);assert.equal(invite.expiresAt,now+300000);
+  const legacy=encodeBytes(new TextEncoder().encode(JSON.stringify(invite)));
+  assert.deepEqual(await parseInvitation(`https://example.test/#pair=${legacy}`,now),invite);
+  await assert.rejects(parseInvitation('rppl2.AQ',now));
+  await assert.rejects(parseInvitation(`${compact}AA`,now));
+});

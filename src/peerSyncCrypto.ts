@@ -31,14 +31,28 @@ export async function createIdentity(): Promise<DeviceIdentity> {
   return { privateKey: pair.privateKey, publicKey, id: await deviceId(publicKey) };
 }
 export function createInvitation(identity: DeviceIdentity, now = Date.now()): string {
-  const invite: PairInvite = { v: 1, id: identity.id, publicKey: identity.publicKey, secret: randomToken(), expiresAt: now + INVITE_LIFETIME_MS };
-  return encodeBytes(encoder.encode(JSON.stringify(invite)));
+  // The public key already determines the device ID. Packing the key, secret,
+  // and expiry avoids repeating JSON/base64 metadata in a dense camera QR.
+  const bytes = new Uint8Array(105);
+  bytes.set(decodeBytes(identity.publicKey, 65));
+  bytes.set(decodeBytes(randomToken(), 32), 65);
+  new DataView(bytes.buffer).setBigUint64(97, BigInt(now + INVITE_LIFETIME_MS));
+  return `rppl2.${encodeBytes(bytes)}`;
 }
 export async function parseInvitation(input: string, now = Date.now()): Promise<PairInvite> {
   let encoded = input.trim();
   if (encoded.includes("#")) encoded = new URLSearchParams(encoded.slice(encoded.indexOf("#") + 1)).get("pair") ?? "";
   if (encoded.startsWith("pair=")) encoded = encoded.slice(5);
-  const invite = JSON.parse(decoder.decode(decodeBytes(encoded, 2048))) as PairInvite;
+  let invite: PairInvite;
+  if (encoded.startsWith("rppl2.")) {
+    const bytes = decodeBytes(encoded.slice(6), 105);
+    if (bytes.length !== 105) throw new Error("This is not a valid device invitation.");
+    const publicKey = encodeBytes(bytes.subarray(0, 65));
+    invite = { v: 1, id: await deviceId(publicKey), publicKey, secret: encodeBytes(bytes.subarray(65, 97)), expiresAt: Number(new DataView(bytes.buffer).getBigUint64(97)) };
+  } else {
+    // Existing QR codes and pasted links still work during the rollout.
+    invite = JSON.parse(decoder.decode(decodeBytes(encoded, 2048))) as PairInvite;
+  }
   if (!invite || invite.v !== 1 || typeof invite.id !== "string" || typeof invite.publicKey !== "string" || typeof invite.secret !== "string" || !Number.isSafeInteger(invite.expiresAt)) throw new Error("This is not a valid device invitation.");
   if (invite.expiresAt <= now || invite.expiresAt > now + INVITE_LIFETIME_MS + 30_000) throw new Error("This device invitation has expired. Create a new one.");
   if (decodeBytes(invite.secret, 32).length !== 32 || await deviceId(invite.publicKey) !== invite.id) throw new Error("Invalid device invitation.");
