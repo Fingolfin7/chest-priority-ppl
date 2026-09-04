@@ -107,3 +107,54 @@ test('closing a connection during decryption discards its pending message', asyn
   assert.equal(a.events.messages.length, 0);
   assert.equal(state.active, false);
 });
+
+test('automatic QR invitation authenticates, links once, and transfers without an approval prompt', async t => {
+  const [alice,bob,stranger] = await Promise.all([createIdentity(),createIdentity(),createIdentity()]);
+  const a=fixture(alice),b=fixture(bob),c=fixture(stranger);
+  t.after(()=>{a.transport.stop();b.transport.stop();c.transport.stop();});
+  a.transport.ready=async()=>{};
+  const invite=await parseInvitation(await a.transport.createInvite(true));
+  wire(a,b,invite);
+  await eventually(()=>a.events.connected.length===1 && b.events.connected.length===1);
+  assert.equal(a.events.requests.length,0);
+  assert.equal(a.transport.invite,undefined);
+  assert.equal(a.transport.autoApproveInvite,undefined);
+  await b.transport.send(alice.id,new Uint8Array([42]));
+  await eventually(()=>a.events.messages.length===1);
+  const {outgoing}=wire(a,c,invite);
+  await eventually(()=>!outgoing.open);
+  assert.equal(c.events.paired.length,0);
+  assert.equal(a.events.paired.length,1);
+});
+
+test('automatic QR pairing still rejects the wrong secret and cancelled codes', async t => {
+  const [alice,bob] = await Promise.all([createIdentity(),createIdentity()]);
+  const a=fixture(alice),b=fixture(bob);
+  t.after(()=>{a.transport.stop();b.transport.stop();});
+  a.transport.ready=async()=>{};
+  const invite=await parseInvitation(await a.transport.createInvite(true));
+  const wrong=wire(a,b,{...invite,secret:randomToken()});
+  await eventually(()=>!wrong.outgoing.open);
+  assert.equal(a.events.paired.length,0);
+  a.transport.cancelInvite();
+  const cancelled=wire(a,b,invite);
+  await eventually(()=>!cancelled.outgoing.open);
+  assert.equal(a.events.paired.length,0);
+  assert.equal(a.transport.autoApproveInvite,undefined);
+});
+
+test('manual invitations do not inherit automatic approval from a replaced QR', async t => {
+  const [alice,bob] = await Promise.all([createIdentity(),createIdentity()]);
+  const a=fixture(alice),b=fixture(bob);
+  t.after(()=>{a.transport.stop();b.transport.stop();});
+  a.transport.ready=async()=>{};
+  const old=await parseInvitation(await a.transport.createInvite(true));
+  const manual=await parseInvitation(await a.transport.createInvite());
+  assert.equal(a.transport.autoApproveInvite,undefined);
+  const stale=wire(a,b,old);
+  await eventually(()=>!stale.outgoing.open);
+  assert.equal(a.events.requests.length,0);
+  wire(a,b,manual);
+  await eventually(()=>a.events.requests.length===1);
+  assert.equal(a.events.connected.length,0);
+});

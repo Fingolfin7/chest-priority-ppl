@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@automerge/automerge": "^3.4.1",
+    "jsqr": "^1.4.0",
     "peerjs": "^1.5.5",
     "qrcode": "^1.5.4",
     "react": "19.2.6",

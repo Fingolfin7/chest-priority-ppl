@@ -46,8 +46,8 @@ const current = page => page.getByTestId('paired-device').filter({hasText:'Up to
 try {
   const a=await makePage('Laptop test',[shared,workout('laptop-session','2026-09-02')]);
   const b=await makePage('Phone test',[shared,workout('phone-session','2026-09-03')],true);
-  await a.getByRole('button',{name:'Add device',exact:true}).click();
-  await a.getByLabel('Pairing link',{exact:true}).waitFor({timeout:30000});
+  await a.getByRole('button',{name:'Show my QR',exact:true}).click();
+  await a.getByAltText('QR code for pairing this browser').waitFor({timeout:30000});
   const invitation=await a.getByLabel('Pairing link',{exact:true}).inputValue();
   await b.goto(invitation);
   await b.getByRole('button',{name:'Pair this browser',exact:true}).waitFor();
@@ -55,11 +55,9 @@ try {
   await b.reload();
   await b.getByRole('button',{name:'Pair this browser',exact:true}).waitFor();
   assert.equal((await b.getByLabel('Pairing link or code',{exact:true}).inputValue()).length>50,true);
-  await b.getByRole('button',{name:'Pair this browser',exact:true}).click();
-  await a.getByRole('button',{name:'Approve pairing',exact:true}).waitFor({timeout:45000});
   assert.equal((await state(a)).length,2); assert.equal((await state(b)).length,2);
-  console.log('PASS: no data exchanged before approval');
-  await a.getByRole('button',{name:'Approve pairing',exact:true}).click();
+  console.log('PASS: no data exchanged before authenticated pairing');
+  await b.getByRole('button',{name:'Pair this browser',exact:true}).click();
   await waitFor(async()=> (await state(a)).length===3 && (await state(b)).length===3 && await current(a) && await current(b),'initial union and durable acknowledgements');
   assert.deepEqual(await state(a),await state(b));
   assert.equal(await b.evaluate(()=>localStorage.getItem('rolling-ppl-autumn-v1')?.includes('synthetic-local-only-token')||false),false);

@@ -223,8 +223,9 @@ export class PeerSyncManager {
   async createInvite() {
     if (!this.view.enabled) await this.enable();
     if (!this.transport) throw new Error("Device connection is unavailable.");
-    const invite = await this.transport.createInvite(); this.refresh({ invite, error: "" }); return invite;
+    const invite = await this.transport.createInvite(true); this.refresh({ invite, error: "" }); return invite;
   }
+  cancelInvite() { this.transport?.cancelInvite(); this.refresh({ invite: "", request: null }); }
   async join(invite: string) {
     if (!this.view.enabled) await this.enable();
     if (!this.transport) throw new Error("Device connection is unavailable.");

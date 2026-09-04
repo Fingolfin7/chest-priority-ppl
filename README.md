@@ -34,7 +34,7 @@ Open **Autumn** from the header, connect with an Autumn username/password or API
 
 ## Sync your phone and laptop
 
-Open **Devices** on your laptop, give the browser a recognizable name, and choose **Add device**. Scan the QR code with your phone's camera, or copy the pairing link into **Devices → Have a pairing link?** in the other browser. Choose **Pair this browser**, then **Approve pairing** on the inviting device. Invitations expire after five minutes and can be used once.
+Open **Devices → Show my QR** on your laptop. On your phone, open **Devices → Scan QR code**, allow the camera, and point it at the laptop. The browsers link and start syncing automatically; no copied link or extra approval is needed. The code authorizes one browser, expires after five minutes, and can be cancelled or closed. The camera stops after a successful scan, when you close the scanner, or when the app moves into the background. **Use a pairing link instead** remains available when a camera is unavailable. Older invitations may still ask for approval on the device that created them.
 
 Keep the app open on both devices for the first sync. Approved browsers reconnect automatically when available; **Sync now** retries a connection. Each paired browser shows whether it is connected, whether it is up to date, and when its last sync was acknowledged. **Pause sync** stops networking while local logging continues.
 
@@ -48,7 +48,7 @@ Use **Remove** beside a paired device to stop syncing with it. Removal records r
 
 The sync store and original migration snapshot are kept locally in IndexedDB. A synchronous recovery journal protects edits while database commits finish. A peer is acknowledged only after received changes are saved. Keep using **Data → Export** for independent backups; normal JSON/CSV exports contain workout data, not device private keys or the complete merge history. Use one Rolling PPL tab per browser profile while logging or syncing.
 
-Validation: `npm test`, `npm run typecheck`, `npm run lint`, and `npm run build`. The optional `node scripts/test-peer-sync.mjs` browser check uses Playwright with installed Chrome in isolated contexts and synthetic data. Install Playwright separately or set `PLAYWRIGHT_MODULE` to its module URL. Run the dev server first; `SYNC_TEST_URL` overrides its URL. Set `SYNC_TEST_PRODUCTION=1` when testing a production preview to also verify service-worker offline reload. Screenshots are saved under ignored `outputs/peer-sync/`.
+Validation: `npm test`, `npm run typecheck`, `npm run lint`, and `npm run build`. The optional `node scripts/test-peer-sync.mjs` browser check uses Playwright with installed Chrome in isolated contexts and synthetic data. Install Playwright separately or set `PLAYWRIGHT_MODULE` to its module URL. Run the dev server first; `SYNC_TEST_URL` overrides its URL. Set `SYNC_TEST_PRODUCTION=1` when testing a production preview to also verify service-worker offline reload. Screenshots are saved under ignored `outputs/peer-sync/`. `node scripts/test-pairing-scanner.mjs` verifies QR decoding, automatic linking, and camera cleanup using synthetic camera frames in isolated browsers (no webcam access).
 
 Development references: [Automerge](https://automerge.org/docs/reference/documents/conflicts/), [PeerJS](https://peerjs.com/client/getting-started), and [WebRTC security](https://www.rfc-editor.org/rfc/rfc8827.html).
 

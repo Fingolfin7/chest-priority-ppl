@@ -29,6 +29,7 @@ export class PeerSyncTransport {
   private peer?: Peer;
   private connections = new Map<string, Connection>();
   private invite?: PairInvite;
+  private autoApproveInvite?: PairInvite;
   private pendingInviteId?: string;
   private retry?: ReturnType<typeof setInterval>;
   private running = false;
@@ -66,6 +67,7 @@ export class PeerSyncTransport {
     if (this.retry) clearInterval(this.retry);
     this.retry = undefined;
     this.invite = undefined;
+    this.autoApproveInvite = undefined;
     this.pendingInviteId = undefined;
     for (const state of [...this.connections.values()]) this.close(state);
     this.peer?.destroy(); this.peer = undefined;
@@ -91,13 +93,18 @@ export class PeerSyncTransport {
     while (this.running && !this.blocked && !this.peer?.open && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 100));
     if (!this.peer?.open || this.blocked || !this.running) throw new Error(this.blocked ? 'Close the other Rolling PPL tab, then retry sync.' : 'Could not reach the pairing service. Check your connection and retry.');
   }
-  async createInvite(): Promise<string> {
+  async createInvite(autoApprove = false): Promise<string> {
     await this.ready();
     if (this.pendingInviteId) this.disconnect(this.pendingInviteId);
     const encoded = createInvitation(this.options.identity);
     this.invite = await parseInvitation(encoded);
+    this.autoApproveInvite = autoApprove ? this.invite : undefined;
     this.pendingInviteId = undefined;
     return encoded;
+  }
+  cancelInvite(): void {
+    this.invite = undefined; this.autoApproveInvite = undefined; this.pendingInviteId = undefined;
+    for (const state of [...this.connections.values()]) if (state.invite && !state.outbound && !state.approved) this.close(state);
   }
   async joinInvite(input: string): Promise<void> {
     const invite = await parseInvitation(input);
@@ -106,12 +113,13 @@ export class PeerSyncTransport {
     if (invite.expiresAt <= Date.now()) throw new Error('This invitation has expired. Create a new one.');
     this.disconnect(invite.id);
     this.connect(invite.id, invite);
-    this.options.onStatus('Connecting securely. Approve this browser on the device showing the invitation.');
+    this.options.onStatus('Linking securely with your other browser…');
   }
   async approvePair(id: string): Promise<void> {
     const state = this.connections.get(id);
     if (!state || state.closed || !state.requested || !state.authenticated || !state.remote || !state.invite || this.invite !== state.invite || state.invite.expiresAt <= Date.now()) throw new Error('This pairing request has expired. Create a new invitation.');
     this.invite = undefined; this.pendingInviteId = undefined;
+    this.autoApproveInvite = undefined;
     state.approved = true;
     this.remember(state.remote);
     await this.control(state, { kind: 'approved' });
@@ -187,9 +195,10 @@ export class PeerSyncTransport {
         state.timer = setTimeout(() => { this.options.onStatus('Pairing request expired. Create a new invitation.'); this.close(state); }, Math.max(1, state.invite.expiresAt - Date.now()));
       }
       if (state.invite && !state.outbound && !state.approved) {
-        if (!state.remote || state.invite.expiresAt <= Date.now()) throw new Error('Pairing invitation expired.');
+        if (!state.remote || state.invite !== this.invite || state.invite.expiresAt <= Date.now()) throw new Error('Pairing invitation expired.');
         state.requested = true;
-        this.options.onPairRequest(state.remote);
+        if (this.autoApproveInvite === state.invite) await this.approvePair(state.remote.id);
+        else this.options.onPairRequest(state.remote);
       } else this.activate(state);
       return;
     }
@@ -217,6 +226,7 @@ export class PeerSyncTransport {
     } else if (hello.proof !== undefined) {
       const invite = this.invite;
       if (!invite || invite.expiresAt <= Date.now() || hello.expiresAt !== invite.expiresAt || typeof hello.proof !== 'string' || (this.pendingInviteId && this.pendingInviteId !== id) || !await verifyPairingProof(invite.secret, helloTranscript(hello, this.options.identity.publicKey), hello.proof)) throw new Error('The pairing invitation is invalid or already in use.');
+      if (this.invite !== invite || invite.expiresAt <= Date.now()) throw new Error('Pairing invitation expired.');
       state.invite = invite;
       this.pendingInviteId = id;
     } else if (!known || known.publicKey !== hello.publicKey) throw new Error('This browser has not been paired.');
