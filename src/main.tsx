@@ -102,15 +102,16 @@ function DemoStrip({ demo, exercise, onOpen }: { demo: Demo; exercise: string; o
   return <figure className="demo-strip"><div className="poses"><button className="image-button" type="button" onClick={() => onOpen(poses[0])} aria-label={`Enlarge ${poses[0].alt}`}><img src={poses[0].src} alt={poses[0].alt} loading="lazy" /></button><span aria-hidden="true">→</span><button className="image-button" type="button" onClick={() => onOpen(poses[1])} aria-label={`Enlarge ${poses[1].alt}`}><img src={poses[1].src} alt={poses[1].alt} loading="lazy" /></button></div><figcaption>{demo.label}</figcaption><a className="image-source" href="https://github.com/yuhonas/free-exercise-db" target="_blank" rel="noreferrer" aria-label={`Public-domain image source for ${exercise}`}>source</a></figure>;
 }
 
-function TrainingRail({ next, active, now, finishing, latest, syncBusy, onSetNext, onStart, onFinish, onCancel, onSync }: {
-  next: WorkoutKey; active: ActiveWorkout | null; now: number; finishing: boolean; latest?: CompletedWorkout; syncBusy: boolean;
+function TrainingRail({ next, active, now, finishEndedAt, finishing, latest, syncBusy, onSetNext, onStart, onFinish, onCancel, onSync }: {
+  next: WorkoutKey; active: ActiveWorkout | null; now: number; finishEndedAt?: string; finishing: boolean; latest?: CompletedWorkout; syncBusy: boolean;
   onSetNext: (workout: WorkoutKey) => void; onStart: () => void; onFinish: () => void; onCancel: () => void; onSync: (session: CompletedWorkout) => void;
 }) {
   const workout = active?.workout ?? next;
+  const elapsedNow = finishEndedAt ? Date.parse(finishEndedAt) : now;
   return <section className={`training-rail ${workout}`} aria-labelledby="training-title">
     <div className="rail-main">
       <div className="rail-copy"><span className="eyebrow">{active ? "Workout in progress" : "Next workout"}</span><h2 id="training-title">{workout}</h2><p>{active ? `Started ${new Date(active.startedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : "The sequence moves only when you finish."}</p></div>
-      {active ? <div className="rail-live"><strong aria-label={`Elapsed time ${elapsedLabel(active.startedAt, now)}`}>{elapsedLabel(active.startedAt, now)}</strong><button className="primary-action" type="button" onClick={onFinish} disabled={finishing}>Finish workout</button><button className="text-action" type="button" onClick={onCancel}>Cancel</button></div>
+      {active ? <div className="rail-live"><strong aria-label={`Elapsed time ${elapsedLabel(active.startedAt, elapsedNow)}`}>{elapsedLabel(active.startedAt, elapsedNow)}</strong><button className="primary-action" type="button" onClick={onFinish} disabled={finishing}>Finish workout</button><button className="text-action" type="button" onClick={onCancel}>Cancel</button></div>
         : <div className="rail-start"><div className="sequence-dots" aria-label="Push, Pull, Legs sequence">{WORKOUT_SEQUENCE.map((item) => <span key={item} className={item === next ? "current" : ""}>{item}</span>)}</div><button className="primary-action" type="button" onClick={onStart}>Start {next}</button><details className="next-picker"><summary>Change next</summary><div>{WORKOUT_SEQUENCE.map((item) => <button type="button" key={item} onClick={() => onSetNext(item)}>{item}</button>)}</div></details></div>}
     </div>
     {!active && latest && latest.sync.status !== "legacy" && <div className={`sync-receipt ${latest.sync.status}`}><div><span>{latest.sync.status === "synced" ? "Autumn receipt" : "Saved on this device"}</span><strong>{latest.workout[0].toUpperCase() + latest.workout.slice(1)} · {workoutDurationMinutes(latest)} min</strong><small>{latest.sync.status === "synced" ? `Synced to ${latest.sync.projectName}` : latest.sync.message || "Ready to sync when you are."}</small></div>{latest.sync.status !== "synced" ? <button type="button" disabled={syncBusy} onClick={() => onSync(latest)}>{syncBusy ? "Syncing…" : "Sync to Autumn"}</button> : <b aria-label="Synced">✓</b>}</div>}
@@ -260,6 +261,7 @@ function App({ manager }: { manager: PeerSyncManager }) {
   const [lightbox, setLightbox] = useState<LightboxImage | null>(null);
   const [autumnOpen, setAutumnOpen] = useState(false);
   const [finishing, setFinishing] = useState(false);
+  const [finishEndedAt, setFinishEndedAt] = useState<string | null>(null);
   const [finishError, setFinishError] = useState("");
   const [now, setNow] = useState(0);
   const [installPrompt, setInstallPrompt] = useState<InstallPromptEvent | null>(null);
@@ -283,13 +285,13 @@ function App({ manager }: { manager: PeerSyncManager }) {
       const current = manager.getSnapshot();
       if (current.next !== previous.next || current.activeWorkout?.id !== previous.activeWorkout?.id) {
         setActiveTab(current.activeWorkout?.workout ?? current.next);
-        if (!current.activeWorkout) setFinishing(false);
+        if (!current.activeWorkout) { setFinishing(false); setFinishEndedAt(null); }
       }
       previous = current;
     });
   }, [manager]);
   useEffect(() => { document.documentElement.dataset.theme = theme; document.documentElement.style.colorScheme = theme; document.querySelector('meta[name="theme-color"]')?.setAttribute("content", theme === "dark" ? "#171d24" : "#f2f4f6"); storeLocal(THEME_KEY, theme); }, [theme]);
-  useEffect(() => { if (!activeWorkout) return; const timer = window.setInterval(() => setNow(Date.now()), 1000); return () => window.clearInterval(timer); }, [activeWorkout]);
+  useEffect(() => { if (!activeWorkout || finishing) return; const timer = window.setInterval(() => setNow(Date.now()), 1000); return () => window.clearInterval(timer); }, [activeWorkout, finishing]);
   useEffect(() => { const onPrompt = (event: Event) => { event.preventDefault(); setInstallPrompt(event as InstallPromptEvent); }; const onInstalled = () => setInstallPrompt(null); window.addEventListener("beforeinstallprompt", onPrompt); window.addEventListener("appinstalled", onInstalled); return () => { window.removeEventListener("beforeinstallprompt", onPrompt); window.removeEventListener("appinstalled", onInstalled); }; }, []);
 
   const installApp = async () => { if (!installPrompt) return; await installPrompt.prompt(); await installPrompt.userChoice; setInstallPrompt(null); };
@@ -305,23 +307,29 @@ function App({ manager }: { manager: PeerSyncManager }) {
     setCheckpoints(nextCheckpoints);
     return { ok: true, message: "Checked and saved on this device." };
   };
-  const startWorkout = () => { const active = createActiveWorkout(next); setActiveWorkout(active); setActiveTab(next); setAppView("train"); setNow(Date.now()); setFinishing(false); setFinishError(""); window.scrollTo({ top: 0, behavior: "smooth" }); };
+  const startWorkout = () => { const active = createActiveWorkout(next); setActiveWorkout(active); setActiveTab(next); setAppView("train"); setNow(Date.now()); setFinishing(false); setFinishEndedAt(null); setFinishError(""); window.scrollTo({ top: 0, behavior: "smooth" }); };
   const cancelWorkout = () => {
     if (!activeWorkout || !window.confirm("Cancel this workout and clear its entered sets?")) return;
     const names = new Set(workouts[activeWorkout.workout].exercises.map((exercise) => exercise.name));
-    manager.change({ ...manager.getSnapshot(), drafts: Object.fromEntries(Object.entries(drafts).filter(([name]) => !names.has(name))), checkpoints: Object.fromEntries(Object.entries(checkpoints).filter(([name]) => !names.has(name))), activeWorkout: null, bodyweight: "", sessionNote: "" }); setFinishing(false);
+    manager.change({ ...manager.getSnapshot(), drafts: Object.fromEntries(Object.entries(drafts).filter(([name]) => !names.has(name))), checkpoints: Object.fromEntries(Object.entries(checkpoints).filter(([name]) => !names.has(name))), activeWorkout: null, bodyweight: "", sessionNote: "" }); setFinishing(false); setFinishEndedAt(null);
   };
   const saveFinishedWorkout = () => {
     if (!activeWorkout) return;
-    const result = completeWorkout({ active: activeWorkout, definitions: workouts[activeWorkout.workout].exercises.map(({ name, priority, loadSuffix }) => ({ name, priority, loadSuffix })), drafts, bodyweight, note: sessionNote });
+    const result = completeWorkout({ active: activeWorkout, definitions: workouts[activeWorkout.workout].exercises.map(({ name, priority, loadSuffix }) => ({ name, priority, loadSuffix })), drafts, bodyweight, note: sessionNote, endedAt: finishEndedAt ?? new Date().toISOString() });
     if (!result.session) { setFinishError(result.error || "The workout could not be saved."); return; }
     const session = result.session;
     if (autumn.projectId && autumn.projectName) session.sync = { ...session.sync, projectId: autumn.projectId, projectName: autumn.projectName };
     const names = new Set(workouts[session.workout].exercises.map((exercise) => exercise.name));
     const following = followingWorkout(session.workout);
     manager.change({ ...manager.getSnapshot(), history: addWorkoutToHistory(history, session), completed: [session, ...completed.filter((item) => item.id !== session.id)], drafts: Object.fromEntries(Object.entries(drafts).filter(([name]) => !names.has(name))), checkpoints: Object.fromEntries(Object.entries(checkpoints).filter(([name]) => !names.has(name))), activeWorkout: null, next: following, bodyweight: "", sessionNote: "" });
-    setActiveTab(following); setFinishing(false); setFinishError(""); window.scrollTo({ top: 0, behavior: "smooth" });
+    setActiveTab(following); setFinishing(false); setFinishEndedAt(null); setFinishError(""); window.scrollTo({ top: 0, behavior: "smooth" });
   };
+  const beginFinish = () => {
+    if (!activeWorkout || finishing) return;
+    const endedAt = new Date().toISOString();
+    setFinishEndedAt(endedAt); setNow(Date.parse(endedAt)); setFinishing(true); setFinishError("");
+  };
+  const resumeWorkout = () => { setFinishing(false); setFinishEndedAt(null); setNow(Date.now()); setFinishError(""); };
 
   const chooseDefaultProject = (projects: AutumnProject[], current: AutumnSettings) => {
     const existing = projects.find((project) => project.id === current.projectId); if (existing) return { ...current, projectName: existing.name };
@@ -386,8 +394,8 @@ function App({ manager }: { manager: PeerSyncManager }) {
   return <>
     <header className="app-header"><div className="app-brand"><h1>Rolling PPL</h1><p>Chest-prioritized · no weekly reset</p></div><nav className="primary-nav" aria-label="App sections"><button type="button" className={appView === "train" ? "active" : ""} aria-current={appView === "train" ? "page" : undefined} onClick={() => setAppView("train")}>Train{activeWorkout && <i aria-label="Workout in progress" />}</button><button type="button" className={appView === "progress" ? "active" : ""} aria-current={appView === "progress" ? "page" : undefined} onClick={() => setAppView("progress")}>Progress</button></nav><div className="header-actions"><PeerSyncPanel manager={manager} /><button className="utility-button" type="button" onClick={() => setAutumnOpen(true)}>Autumn{pending.length > 0 && <b>{pending.length}</b>}</button><DataMenu history={history} workouts={completed} onImport={importHistory} />{installPrompt && <button className="install-button" type="button" onClick={installApp}>Install</button>}<button className="theme-toggle" type="button" onClick={() => setTheme((current) => current === "dark" ? "light" : "dark")} aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}><span aria-hidden="true">{theme === "dark" ? "☀" : "☾"}</span></button></div></header>
     <main>
-      {appView === "train" ? <><TrainingRail next={next} active={activeWorkout} now={now} finishing={finishing} latest={latest} syncBusy={autumnBusy} onSetNext={(workout) => { setNext(workout); setActiveTab(workout); }} onStart={startWorkout} onFinish={() => setFinishing(true)} onCancel={cancelWorkout} onSync={syncWorkout} />
-        {finishing && activeWorkout && <FinishWorkout workout={activeWorkout.workout} bodyweight={bodyweight} note={sessionNote} error={finishError} summary={finishSummary} onBodyweight={setBodyweight} onNote={setSessionNote} onBack={() => { setFinishing(false); setFinishError(""); }} onSave={saveFinishedWorkout} />}
+      {appView === "train" ? <><TrainingRail next={next} active={activeWorkout} now={now} finishEndedAt={finishEndedAt ?? undefined} finishing={finishing} latest={latest} syncBusy={autumnBusy} onSetNext={(workout) => { setNext(workout); setActiveTab(workout); }} onStart={startWorkout} onFinish={beginFinish} onCancel={cancelWorkout} onSync={syncWorkout} />
+        {finishing && activeWorkout && <FinishWorkout workout={activeWorkout.workout} bodyweight={bodyweight} note={sessionNote} error={finishError} summary={finishSummary} onBodyweight={setBodyweight} onNote={setSessionNote} onBack={resumeWorkout} onSave={saveFinishedWorkout} />}
         <div className="workout-tabs" role="tablist" aria-label="Choose a workout to view">{WORKOUT_SEQUENCE.map((key) => <button key={key} role="tab" aria-selected={activeTab === key} className={activeTab === key ? `active ${key}` : ""} onClick={() => setActiveTab(key)}>{key}<small>{activeWorkout?.workout === key ? "logging now" : `${workouts[key].exercises.length} exercises`}</small></button>)}</div>
         <p className="storage-note">Entries recover automatically. Save each exercise when done; finish once.</p>
         <Workout workout={activeTab} onOpen={setLightbox} history={history} drafts={drafts} enabled={activeWorkout?.workout === activeTab && !finishing} activeWorkoutId={activeWorkout?.workout === activeTab ? activeWorkout.id : undefined} checkpoints={checkpoints} onDraftChange={updateDraft} onSave={saveExercise} /><Notes /></>
