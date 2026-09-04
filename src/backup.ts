@@ -44,7 +44,7 @@ function normalizeSets(value: unknown, context: string) {
     const reps = rawSet.reps == null ? "" : String(rawSet.reps).trim();
     const set = Number(rawSet.set ?? index + 1);
     if (!Number.isInteger(set) || set < 1 || !reps || !Number.isFinite(Number(reps)) || Number(reps) <= 0) throw new Error(`${context}, set ${index + 1} is invalid.`);
-    return { set, load, reps };
+    return { ...(typeof rawSet.id === "string" && rawSet.id ? { id: rawSet.id } : {}), set, load, reps };
   }).sort((left, right) => left.set - right.set);
 }
 
@@ -81,7 +81,7 @@ function normalizeWorkout(value: unknown, position: number): CompletedWorkout {
     const loadSuffix = typeof rawExercise.loadSuffix === "string" && rawExercise.loadSuffix ? rawExercise.loadSuffix : undefined;
     return {
       name: canonicalExerciseName(rawExercise.name), priority, ...(loadSuffix ? { loadSuffix } : {}),
-      sets: normalizeSets(rawExercise.sets, `Workout ${position}, exercise ${exerciseIndex + 1}`).map(({ load, reps }) => ({ load, reps })),
+      sets: normalizeSets(rawExercise.sets, `Workout ${position}, exercise ${exerciseIndex + 1}`).map(({ id, load, reps }) => ({ ...(id ? { id } : {}), load, reps })),
     };
   });
   const rawSync = isRecord(value.sync) && SYNC_STATUSES.includes(value.sync.status as WorkoutSync["status"])

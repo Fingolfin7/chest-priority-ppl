@@ -1,10 +1,13 @@
-import { Fragment, StrictMode, useEffect, useMemo, useState, type FormEvent, type MouseEvent, type ReactNode } from "react";
+import { Fragment, StrictMode, useEffect, useMemo, useState, useSyncExternalStore, type FormEvent, type MouseEvent, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import {
   DEFAULT_AUTUMN_URL, defaultAutumnSettings, getAutumnAccount, listAutumnProjects,
   pushWorkoutToAutumn, signInToAutumn, type AutumnProject, type AutumnSettings,
 } from "./autumn";
 import { DataMenu } from "./DataMenu";
+import { PeerSyncPanel } from "./PeerSyncPanel";
+import { PeerSyncManager } from "./peerSyncManager";
+import type { SyncSnapshot } from "./peerSyncModel";
 import { parseBackupText } from "./transfer";
 import { pruneCompletedDrafts, type DraftMap } from "./drafts";
 import { canonicalizeHistory, type HistoryMap, type SavedSession, type SetEntry } from "./historyMigration";
@@ -58,7 +61,7 @@ function storeLocal(key: string, value: unknown) {
 
 function exerciseFingerprint(entries: SetEntry[]) {
   const result = selectedExerciseSets(entries);
-  return result.error || !result.sets.length ? "" : JSON.stringify(result.sets);
+  return result.error || !result.sets.length ? "" : JSON.stringify(result.sets.map(({ load, reps }) => ({ load, reps })));
 }
 
 function isWorkoutKey(value: unknown): value is WorkoutKey { return value === "push" || value === "pull" || value === "legs"; }
@@ -239,21 +242,24 @@ function Lightbox({ image, onClose }: { image: LightboxImage | null; onClose: ()
   return <div className="lightbox"><div className="lightbox-dialog" role="dialog" aria-modal="true" aria-label={image.alt}><button className="lightbox-close" type="button" onClick={onClose}>Close <span aria-hidden="true">×</span></button><img className="lightbox-image" src={image.src} alt={image.alt} /><p>{image.alt}</p></div></div>;
 }
 
-function App() {
-  const initialHistory = useMemo(() => canonicalizeHistory(readStored<HistoryMap>(HISTORY_KEY, {})), []);
-  const [history, setHistory] = useState<HistoryMap>(initialHistory);
-  const [drafts, setDrafts] = useState<DraftMap>(() => pruneCompletedDrafts(readStored<DraftMap>(DRAFTS_KEY, {}), initialHistory));
-  const [checkpoints, setCheckpoints] = useState<CheckpointMap>(() => readStored<CheckpointMap>(CHECKPOINTS_KEY, {}));
-  const [completed, setCompleted] = useState<CompletedWorkout[]>(() => { const stored = readStored<CompletedWorkout[]>(WORKOUTS_KEY, []); return stored.length ? stored : migrateLegacyHistory(initialHistory, exerciseWorkouts); });
-  const [activeWorkout, setActiveWorkout] = useState<ActiveWorkout | null>(() => readStored<ActiveWorkout | null>(ACTIVE_WORKOUT_KEY, null));
-  const [next, setNext] = useState<WorkoutKey>(() => { const stored = readStored<unknown>(NEXT_WORKOUT_KEY, ""); if (isWorkoutKey(stored)) return stored; const sessions = readStored<CompletedWorkout[]>(WORKOUTS_KEY, []); if (sessions[0] && isWorkoutKey(sessions[0].workout)) return followingWorkout(sessions[0].workout); const legacy = migrateLegacyHistory(initialHistory, exerciseWorkouts); return legacy[0] ? followingWorkout(legacy[0].workout) : "push"; });
+function bindField<K extends keyof SyncSnapshot>(manager: PeerSyncManager, key: K) {
+  return (action: SyncSnapshot[K] | ((previous: SyncSnapshot[K]) => SyncSnapshot[K])) => manager.set(key, action);
+}
+
+function App({ manager }: { manager: PeerSyncManager }) {
+  const { history, drafts, checkpoints, completed, activeWorkout, next, bodyweight, sessionNote } = useSyncExternalStore(manager.subscribe, manager.getSnapshot);
+  const setDrafts = bindField(manager, "drafts");
+  const setCheckpoints = bindField(manager, "checkpoints");
+  const setCompleted = bindField(manager, "completed");
+  const setActiveWorkout = bindField(manager, "activeWorkout");
+  const setNext = bindField(manager, "next");
+  const setBodyweight = bindField(manager, "bodyweight");
+  const setSessionNote = bindField(manager, "sessionNote");
   const [activeTab, setActiveTab] = useState<WorkoutKey>(() => activeWorkout?.workout ?? next);
   const [appView, setAppView] = useState<AppView>(() => readStored<AppView>(APP_VIEW_KEY, "train") === "progress" ? "progress" : "train");
   const [lightbox, setLightbox] = useState<LightboxImage | null>(null);
   const [autumnOpen, setAutumnOpen] = useState(false);
   const [finishing, setFinishing] = useState(false);
-  const [bodyweight, setBodyweight] = useState("");
-  const [sessionNote, setSessionNote] = useState("");
   const [finishError, setFinishError] = useState("");
   const [now, setNow] = useState(0);
   const [installPrompt, setInstallPrompt] = useState<InstallPromptEvent | null>(null);
@@ -271,20 +277,30 @@ function App() {
   useEffect(() => { storeLocal(NEXT_WORKOUT_KEY, next); }, [next]);
   useEffect(() => { storeLocal(APP_VIEW_KEY, appView); }, [appView]);
   useEffect(() => { storeLocal(AUTUMN_KEY, autumn); }, [autumn]);
+  useEffect(() => {
+    let previous = manager.getSnapshot();
+    return manager.subscribe(() => {
+      const current = manager.getSnapshot();
+      if (current.next !== previous.next || current.activeWorkout?.id !== previous.activeWorkout?.id) {
+        setActiveTab(current.activeWorkout?.workout ?? current.next);
+        if (!current.activeWorkout) setFinishing(false);
+      }
+      previous = current;
+    });
+  }, [manager]);
   useEffect(() => { document.documentElement.dataset.theme = theme; document.documentElement.style.colorScheme = theme; document.querySelector('meta[name="theme-color"]')?.setAttribute("content", theme === "dark" ? "#171d24" : "#f2f4f6"); storeLocal(THEME_KEY, theme); }, [theme]);
   useEffect(() => { if (!activeWorkout) return; const timer = window.setInterval(() => setNow(Date.now()), 1000); return () => window.clearInterval(timer); }, [activeWorkout]);
   useEffect(() => { const onPrompt = (event: Event) => { event.preventDefault(); setInstallPrompt(event as InstallPromptEvent); }; const onInstalled = () => setInstallPrompt(null); window.addEventListener("beforeinstallprompt", onPrompt); window.addEventListener("appinstalled", onInstalled); return () => { window.removeEventListener("beforeinstallprompt", onPrompt); window.removeEventListener("appinstalled", onInstalled); }; }, []);
 
   const installApp = async () => { if (!installPrompt) return; await installPrompt.prompt(); await installPrompt.userChoice; setInstallPrompt(null); };
   const updateDraft = (name: string, entries: SetEntry[]) => setDrafts((current) => ({ ...current, [name]: entries }));
-  const clearCheckpoints = (names: Set<string>) => setCheckpoints((current) => Object.fromEntries(Object.entries(current).filter(([name]) => !names.has(name))));
   const saveExercise = (name: string, entries: SetEntry[]): SaveResult => {
     if (!activeWorkout) return { ok: false, message: "Start this workout before saving." };
     const result = selectedExerciseSets(entries);
     if (result.error) return { ok: false, message: result.error };
     if (!result.sets.length) return { ok: false, message: "Enter at least one completed set." };
     const nextDrafts = { ...drafts, [name]: entries };
-    const nextCheckpoints = { ...checkpoints, [name]: { workoutId: activeWorkout.id, fingerprint: JSON.stringify(result.sets) } };
+    const nextCheckpoints = { ...checkpoints, [name]: { workoutId: activeWorkout.id, fingerprint: exerciseFingerprint(entries) } };
     if (!storeLocal(DRAFTS_KEY, nextDrafts) || !storeLocal(CHECKPOINTS_KEY, nextCheckpoints)) return { ok: false, message: "This device could not save the exercise. Keep this page open and try again." };
     setCheckpoints(nextCheckpoints);
     return { ok: true, message: "Checked and saved on this device." };
@@ -293,7 +309,7 @@ function App() {
   const cancelWorkout = () => {
     if (!activeWorkout || !window.confirm("Cancel this workout and clear its entered sets?")) return;
     const names = new Set(workouts[activeWorkout.workout].exercises.map((exercise) => exercise.name));
-    setDrafts((current) => Object.fromEntries(Object.entries(current).filter(([name]) => !names.has(name)))); clearCheckpoints(names); setActiveWorkout(null); setFinishing(false);
+    manager.change({ ...manager.getSnapshot(), drafts: Object.fromEntries(Object.entries(drafts).filter(([name]) => !names.has(name))), checkpoints: Object.fromEntries(Object.entries(checkpoints).filter(([name]) => !names.has(name))), activeWorkout: null, bodyweight: "", sessionNote: "" }); setFinishing(false);
   };
   const saveFinishedWorkout = () => {
     if (!activeWorkout) return;
@@ -301,9 +317,10 @@ function App() {
     if (!result.session) { setFinishError(result.error || "The workout could not be saved."); return; }
     const session = result.session;
     if (autumn.projectId && autumn.projectName) session.sync = { ...session.sync, projectId: autumn.projectId, projectName: autumn.projectName };
-    setHistory((current) => addWorkoutToHistory(current, session)); setCompleted((current) => [session, ...current.filter((item) => item.id !== session.id)]);
-    const names = new Set(workouts[session.workout].exercises.map((exercise) => exercise.name)); setDrafts((current) => Object.fromEntries(Object.entries(current).filter(([name]) => !names.has(name)))); clearCheckpoints(names);
-    const following = followingWorkout(session.workout); setNext(following); setActiveTab(following); setActiveWorkout(null); setFinishing(false); setBodyweight(""); setSessionNote(""); setFinishError(""); window.scrollTo({ top: 0, behavior: "smooth" });
+    const names = new Set(workouts[session.workout].exercises.map((exercise) => exercise.name));
+    const following = followingWorkout(session.workout);
+    manager.change({ ...manager.getSnapshot(), history: addWorkoutToHistory(history, session), completed: [session, ...completed.filter((item) => item.id !== session.id)], drafts: Object.fromEntries(Object.entries(drafts).filter(([name]) => !names.has(name))), checkpoints: Object.fromEntries(Object.entries(checkpoints).filter(([name]) => !names.has(name))), activeWorkout: null, next: following, bodyweight: "", sessionNote: "" });
+    setActiveTab(following); setFinishing(false); setFinishError(""); window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
   const chooseDefaultProject = (projects: AutumnProject[], current: AutumnSettings) => {
@@ -333,8 +350,22 @@ function App() {
 
   const importHistory = (text: string) => {
       const parsed = parseBackupText(text);
-      setHistory((current) => { const nextHistory: HistoryMap = { ...current }; parsed.sessions.forEach((session) => { const restored = { id: session.sessionId, savedAt: session.performedAt, sets: session.sets.map(({ load, reps }) => ({ load, reps })) }; const byId = new Map((nextHistory[session.exercise] ?? []).map((saved) => [saved.id, saved])); byId.set(restored.id, restored); nextHistory[session.exercise] = Array.from(byId.values()).sort((left, right) => right.savedAt.localeCompare(left.savedAt)); }); return nextHistory; });
-      if (parsed.workouts.length) setCompleted((current) => { const byId = new Map(current.map((session) => [session.id, session])); parsed.workouts.forEach((session) => byId.set(session.id, session)); return Array.from(byId.values()).sort((left, right) => right.endedAt.localeCompare(left.endedAt)); });
+      const nextHistory: HistoryMap = { ...history };
+      parsed.sessions.forEach((session) => {
+        const byId = new Map((nextHistory[session.exercise] ?? []).map((saved) => [saved.id, saved]));
+        const existing = byId.get(session.sessionId);
+        const restored = { id: session.sessionId, savedAt: session.performedAt, sets: session.sets.map(({ id, load, reps }, index) => ({ ...(id || existing?.sets[index]?.id ? { id: id || existing?.sets[index]?.id } : {}), load, reps })) };
+        byId.set(restored.id, restored); nextHistory[session.exercise] = Array.from(byId.values()).sort((left, right) => right.savedAt.localeCompare(left.savedAt));
+      });
+      const byId = new Map(completed.map((session) => [session.id, session]));
+      parsed.workouts.forEach((session) => {
+        const existing = byId.get(session.id);
+        byId.set(session.id, { ...session, exercises: session.exercises.map((exercise) => {
+          const previous = existing?.exercises.find((item) => item.name === exercise.name);
+          return { ...exercise, sets: exercise.sets.map((set, index) => ({ ...set, ...(set.id || previous?.sets[index]?.id ? { id: set.id || previous?.sets[index]?.id } : {}) })) };
+        }) });
+      });
+      manager.change({ ...manager.getSnapshot(), history: nextHistory, completed: Array.from(byId.values()).sort((left, right) => right.endedAt.localeCompare(left.endedAt)) });
       return `Imported ${parsed.sessions.length} lift record${parsed.sessions.length === 1 ? "" : "s"}${parsed.workouts.length ? ` and ${parsed.workouts.length} workouts` : ""}.`;
   };
 
@@ -349,11 +380,11 @@ function App() {
       exerciseTotal: definitions.length,
       setCount: entered.reduce((sum, { result }) => sum + result.sets.length, 0),
       missingMust: definitions.filter((exercise) => exercise.priority === "must" && !entered.some((item) => item.exercise.name === exercise.name)).map((exercise) => exercise.name),
-      unsaved: entered.filter(({ exercise, result }) => checkpoints[exercise.name]?.workoutId !== activeWorkout.id || checkpoints[exercise.name]?.fingerprint !== JSON.stringify(result.sets)).map(({ exercise }) => exercise.name),
+      unsaved: entered.filter(({ exercise }) => checkpoints[exercise.name]?.workoutId !== activeWorkout.id || checkpoints[exercise.name]?.fingerprint !== exerciseFingerprint(drafts[exercise.name] ?? [])).map(({ exercise }) => exercise.name),
     };
   }, [activeWorkout, checkpoints, drafts]);
   return <>
-    <header className="app-header"><div className="app-brand"><h1>Rolling PPL</h1><p>Chest-prioritized · no weekly reset</p></div><nav className="primary-nav" aria-label="App sections"><button type="button" className={appView === "train" ? "active" : ""} aria-current={appView === "train" ? "page" : undefined} onClick={() => setAppView("train")}>Train{activeWorkout && <i aria-label="Workout in progress" />}</button><button type="button" className={appView === "progress" ? "active" : ""} aria-current={appView === "progress" ? "page" : undefined} onClick={() => setAppView("progress")}>Progress</button></nav><div className="header-actions"><button className="utility-button" type="button" onClick={() => setAutumnOpen(true)}>Autumn{pending.length > 0 && <b>{pending.length}</b>}</button><DataMenu history={history} workouts={completed} onImport={importHistory} />{installPrompt && <button className="install-button" type="button" onClick={installApp}>Install</button>}<button className="theme-toggle" type="button" onClick={() => setTheme((current) => current === "dark" ? "light" : "dark")} aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}><span aria-hidden="true">{theme === "dark" ? "☀" : "☾"}</span></button></div></header>
+    <header className="app-header"><div className="app-brand"><h1>Rolling PPL</h1><p>Chest-prioritized · no weekly reset</p></div><nav className="primary-nav" aria-label="App sections"><button type="button" className={appView === "train" ? "active" : ""} aria-current={appView === "train" ? "page" : undefined} onClick={() => setAppView("train")}>Train{activeWorkout && <i aria-label="Workout in progress" />}</button><button type="button" className={appView === "progress" ? "active" : ""} aria-current={appView === "progress" ? "page" : undefined} onClick={() => setAppView("progress")}>Progress</button></nav><div className="header-actions"><PeerSyncPanel manager={manager} /><button className="utility-button" type="button" onClick={() => setAutumnOpen(true)}>Autumn{pending.length > 0 && <b>{pending.length}</b>}</button><DataMenu history={history} workouts={completed} onImport={importHistory} />{installPrompt && <button className="install-button" type="button" onClick={installApp}>Install</button>}<button className="theme-toggle" type="button" onClick={() => setTheme((current) => current === "dark" ? "light" : "dark")} aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}><span aria-hidden="true">{theme === "dark" ? "☀" : "☾"}</span></button></div></header>
     <main>
       {appView === "train" ? <><TrainingRail next={next} active={activeWorkout} now={now} finishing={finishing} latest={latest} syncBusy={autumnBusy} onSetNext={(workout) => { setNext(workout); setActiveTab(workout); }} onStart={startWorkout} onFinish={() => setFinishing(true)} onCancel={cancelWorkout} onSync={syncWorkout} />
         {finishing && activeWorkout && <FinishWorkout workout={activeWorkout.workout} bodyweight={bodyweight} note={sessionNote} error={finishError} summary={finishSummary} onBodyweight={setBodyweight} onNote={setSessionNote} onBack={() => { setFinishing(false); setFinishError(""); }} onSave={saveFinishedWorkout} />}
@@ -368,4 +399,42 @@ function App() {
   </>;
 }
 
-createRoot(document.getElementById("root")!).render(<StrictMode><App /></StrictMode>);
+function initialSyncSnapshot(): SyncSnapshot {
+  const history = canonicalizeHistory(readStored<HistoryMap>(HISTORY_KEY, {}), Infinity);
+  const stored = readStored<CompletedWorkout[]>(WORKOUTS_KEY, []);
+  const completed = stored.length ? stored : migrateLegacyHistory(history, exerciseWorkouts);
+  const activeWorkout = readStored<ActiveWorkout | null>(ACTIVE_WORKOUT_KEY, null);
+  const storedNext = readStored<unknown>(NEXT_WORKOUT_KEY, "");
+  return { history, completed, activeWorkout,
+    drafts: activeWorkout ? readStored<DraftMap>(DRAFTS_KEY, {}) : pruneCompletedDrafts(readStored<DraftMap>(DRAFTS_KEY, {}), history),
+    checkpoints: readStored<CheckpointMap>(CHECKPOINTS_KEY, {}),
+    next: isWorkoutKey(storedNext) ? storedNext : completed[0] ? followingWorkout(completed[0].workout) : "push",
+    bodyweight: "", sessionNote: "" };
+}
+
+async function boot() {
+  const manager = new PeerSyncManager(initialSyncSnapshot());
+  await manager.initialize();
+  createRoot(document.getElementById("root")!).render(<StrictMode><App manager={manager} /></StrictMode>);
+  if ("serviceWorker" in navigator && import.meta.env.PROD) {
+    void navigator.serviceWorker.register("./sw.js").then((registration) => {
+      void registration.update();
+      document.addEventListener("visibilitychange", () => { if (!document.hidden) void registration.update(); });
+    }).catch(() => { /* Local logging also works without an installed worker. */ });
+  }
+}
+
+// One writer per browser profile prevents two tabs from overwriting the same
+// persistent Automerge actor/identity. Separate browsers and devices remain peers.
+if (navigator.locks) {
+  void navigator.locks.request("rolling-ppl-writer-v1", { ifAvailable: true }, async (lock) => {
+    if (!lock) {
+      document.getElementById("root")!.textContent = "Rolling PPL is already open in another tab in this browser. Use that tab, or close it and reload this page.";
+      return;
+    }
+    await boot();
+    await new Promise<void>(() => {});
+  }).catch((error) => { document.getElementById("root")!.textContent = `Rolling PPL could not open its local data: ${String(error)}. Your saved data has not been cleared.`; });
+} else {
+  void boot().catch((error) => { document.getElementById("root")!.textContent = `Rolling PPL could not open its local data: ${String(error)}. Your saved data has not been cleared.`; });
+}

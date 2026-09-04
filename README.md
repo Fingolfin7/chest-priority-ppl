@@ -7,7 +7,7 @@ A phone-first, chest-prioritized rolling Push/Pull/Legs workout tracker. The seq
 - Persistent next-workout sequence with start, elapsed-time, and finish controls
 - Separate Train and Progress destinations, with three focused workout tabs inside Train
 - Gym-readable exercise rows with work sets, optional warm-ups, rest, cues, and click-to-enlarge public-domain photos
-- Crash-safe workout drafts and device-local completed sessions
+- Crash-safe workout drafts and completed sessions with optional peer-to-peer browser sync
 - Previous-session context, per-set target placeholders, and double-progression suggestions
 - Optional bodyweight and session notes
 - Full-width bodyweight chart plus exercise-selectable recorded-volume and working-weight charts
@@ -31,6 +31,26 @@ The dev server runs at `http://127.0.0.1:4173`, an origin already allowed by Aut
 ## Autumn sync
 
 Open **Autumn** from the header, connect with an Autumn username/password or API token, and choose the current gym project. The password is used only for sign-in and is never stored. The returned token stays in that browser and is excluded from Rolling PPL backups.
+
+## Sync your phone and laptop
+
+Open **Devices** on your laptop, give the browser a recognizable name, and choose **Add device**. Scan the QR code with your phone's camera, or copy the pairing link into **Devices → Have a pairing link?** in the other browser. Choose **Pair this browser**, then **Approve pairing** on the inviting device. Invitations expire after five minutes and can be used once.
+
+Keep the app open on both devices for the first sync. Approved browsers reconnect automatically when available; **Sync now** retries a connection. Each paired browser shows whether it is connected, whether it is up to date, and when its last sync was acknowledged. **Pause sync** stops networking while local logging continues.
+
+Workout history, bodyweight, notes, entered sets, active workouts, exercise save checkpoints, and the next workout travel between browsers. The app keeps a complete local copy in each browser. There is no central workout database and no sync account. Autumn credentials and display preferences stay in their original browser. Devices cannot fetch updates while every browser holding those updates is closed or suspended; mobile browsers should be kept in the foreground during a transfer.
+
+Stable workout and set identities prevent duplicate records when a transfer repeats. Automerge exchanges missing changes and combines edits to different fields. Independent edits to the same field remain available under **Changes to review** until you choose the correct value. Deletions are recorded so a stale browser cannot silently restore a deleted record. Independently logging the same real workout twice still creates two distinct records.
+
+Every browser has a private ECDH key stored in IndexedDB. Pairing authenticates the exchanged public keys with a temporary secret; subsequent connections authenticate paired keys and encrypt transfers. PeerJS Cloud provides signaling, with STUN used to discover connection routes. The default configuration does not provide a TURN relay: restrictive firewalls or some mobile networks may prevent connection. Try the same Wi-Fi on both devices if they cannot connect. Connection setup services do not store workout history.
+
+Use **Remove** beside a paired device to stop syncing with it. Removal records reach other connected paired browsers and propagate to offline browsers when they reconnect. Already received copies cannot be erased remotely. To rejoin after removal, the removed browser creates a new identity when pairing again. If it was removed while offline and never received the notice, use **How device sync works → Reset browser pairing** first; this keeps its workouts. Pair each additional browser with at least one existing device; changes can pass through devices as they reconnect.
+
+The sync store and original migration snapshot are kept locally in IndexedDB. A synchronous recovery journal protects edits while database commits finish. A peer is acknowledged only after received changes are saved. Keep using **Data → Export** for independent backups; normal JSON/CSV exports contain workout data, not device private keys or the complete merge history. Use one Rolling PPL tab per browser profile while logging or syncing.
+
+Validation: `npm test`, `npm run typecheck`, `npm run lint`, and `npm run build`. The optional `node scripts/test-peer-sync.mjs` browser check uses Playwright with installed Chrome in isolated contexts and synthetic data. Install Playwright separately or set `PLAYWRIGHT_MODULE` to its module URL. Run the dev server first; `SYNC_TEST_URL` overrides its URL. Set `SYNC_TEST_PRODUCTION=1` when testing a production preview to also verify service-worker offline reload. Screenshots are saved under ignored `outputs/peer-sync/`.
+
+Development references: [Automerge](https://automerge.org/docs/reference/documents/conflicts/), [PeerJS](https://peerjs.com/client/getting-started), and [WebRTC security](https://www.rfc-editor.org/rfc/rfc8827.html).
 
 The Progress tab plots up to 24 bodyweight readings. Volume is the sum of recorded numeric load × reps for each exercise session, while working weight is the heaviest completed set. Exercise selections are remembered per chart. Dumbbell values stay as entered (per dumbbell), and bodyweight/text loads are excluded from kilogram charts.
 

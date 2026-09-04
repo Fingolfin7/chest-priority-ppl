@@ -1,4 +1,4 @@
-export type SetEntry = { load: string; reps: string };
+export type SetEntry = { id?: string; load: string; reps: string };
 export type SavedSession = { id: string; savedAt: string; sets: SetEntry[] };
 export type HistoryMap = Record<string, SavedSession[]>;
 
@@ -12,7 +12,7 @@ export function canonicalExerciseName(name: string) {
   return EXERCISE_NAME_ALIASES[trimmed] ?? trimmed;
 }
 
-export function canonicalizeHistory(history: HistoryMap): HistoryMap {
+export function canonicalizeHistory(history: HistoryMap, limit = 20): HistoryMap {
   const migrated: HistoryMap = {};
   Object.entries(history).forEach(([storedName, sessions]) => {
     if (!Array.isArray(sessions)) return;
@@ -21,7 +21,7 @@ export function canonicalizeHistory(history: HistoryMap): HistoryMap {
     sessions.forEach((session) => byId.set(session.id, session));
     migrated[exercise] = Array.from(byId.values())
       .sort((left, right) => right.savedAt.localeCompare(left.savedAt))
-      .slice(0, 20);
+      .slice(0, limit);
   });
   return migrated;
 }

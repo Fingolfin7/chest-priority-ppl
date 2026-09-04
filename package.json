@@ -12,11 +12,15 @@
     "test": "node --test tests/*.test.mjs"
   },
   "dependencies": {
+    "@automerge/automerge": "^3.4.1",
+    "peerjs": "^1.5.5",
+    "qrcode": "^1.5.4",
     "react": "19.2.6",
     "react-dom": "19.2.6"
   },
   "devDependencies": {
     "@eslint/js": "9.39.4",
+    "@types/qrcode": "^1.5.6",
     "@types/react": "19.2.14",
     "@types/react-dom": "19.2.3",
     "@vitejs/plugin-react": "6.0.2",

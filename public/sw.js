@@ -1,4 +1,4 @@
-const CACHE_NAME = "rolling-ppl-v24";
+const CACHE_NAME = "rolling-ppl-v25";
 const EXERCISES = [
   "bench", "incline-press", "chest-press-machine", "lateral-raise", "pushdown", "overhead-db-extension",
   "barbell-row", "lat-pulldown", "pullups", "rear-delt-fly", "barbell-curl", "hammer-curl",
@@ -32,8 +32,9 @@ self.addEventListener("activate", (event) => {
     const names = await caches.keys();
     await Promise.all(names.filter((name) => name !== CACHE_NAME).map((name) => caches.delete(name)));
     await self.clients.claim();
-    const openClients = await self.clients.matchAll({ type: "window" });
-    await Promise.all(openClients.map((client) => client.navigate(client.url).catch(() => null)));
+    // Do not navigate clients inside activation: navigation can wait for this
+    // worker to activate, deadlocking the page. The next normal reload uses
+    // the current shell, and in-progress workouts are not interrupted.
   })());
 });
 

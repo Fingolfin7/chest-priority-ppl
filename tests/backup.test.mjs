@@ -52,6 +52,16 @@ test("JSON full backup retains bodyweight and sync receipts", () => {
   assert.deepEqual(parsed.workouts[0].sync, workout.sync);
 });
 
+test("JSON backup preserves stable set identities through export and restore", () => {
+  const identified = structuredClone(workout);
+  identified.exercises[0].sets.forEach((set, index) => { set.id = `stable-set-${index}`; });
+  const identifiedHistory = structuredClone(history);
+  identifiedHistory[identified.exercises[0].name][0].sets = identified.exercises[0].sets;
+  const parsed = parseJsonBackup(createJsonBackup(identifiedHistory, [identified]));
+  assert.deepEqual(parsed.workouts[0].exercises[0].sets, identified.exercises[0].sets);
+  assert.deepEqual(parsed.sessions[0].sets.map((set) => set.id), ["stable-set-0", "stable-set-1"]);
+});
+
 test("backup import rejects invalid workout bodyweight", () => {
   const invalid = JSON.stringify({ schemaVersion: 2, sessions: [], workouts: [{ ...workout, bodyweight: "heavy" }] });
   assert.throws(() => parseJsonBackup(invalid), /invalid bodyweight/);

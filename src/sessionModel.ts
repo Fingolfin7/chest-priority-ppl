@@ -61,6 +61,7 @@ export function selectedExerciseSets(entries: SetEntry[]) {
   if (lastUsed < 0) return { sets: [] as SetEntry[], error: "" };
 
   const sets = entries.slice(0, lastUsed + 1).map((entry) => ({
+    ...(entry.id ? { id: entry.id } : {}),
     load: entry.load.trim(),
     reps: entry.reps.trim(),
   }));
