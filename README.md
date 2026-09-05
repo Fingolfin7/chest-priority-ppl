@@ -9,6 +9,7 @@ A phone-first, chest-prioritized rolling Push/Pull/Legs workout tracker. The seq
 - Gym-readable exercise rows with work sets, optional warm-ups, rest, cues, and click-to-enlarge public-domain photos
 - Crash-safe workout drafts and completed sessions with optional peer-to-peer browser sync
 - Previous-session context, per-set target placeholders, and double-progression suggestions
+- Edit past session times, bodyweight, notes, exercises, and sets from Progress
 - Optional bodyweight and session notes
 - Full-width bodyweight chart plus exercise-selectable recorded-volume and working-weight charts
 - Session frequency, recent lift history, and genuine load/rep milestones
@@ -27,6 +28,12 @@ npm run dev
 ```
 
 The dev server runs at `http://127.0.0.1:4173`, an origin already allowed by Autumn. Build the production site with `npm run build`; output is written to `dist/`.
+
+## Edit past sessions
+
+Open **Progress > Past sessions > Edit session**. Correct the start/end time, bodyweight, note, loads, or reps; add missed exercises/sets or remove incorrect entries. **Save changes** updates the session and its progression history together. **Cancel editing** discards the draft. Existing session and set IDs are preserved, and the active workout and next-workout sequence stay intact. If the session changes on another device while the editor is open, reopen it before saving.
+
+Edits sync to paired Rolling PPL browsers. An existing Autumn receipt is retained, but the Autumn record is not updated automatically; correct that record separately.
 
 ## Autumn sync
 

@@ -69,3 +69,21 @@ footer { padding:1.5rem 0 3rem; display:flex; justify-content:space-between; gap
 .pairing-scanner{padding:1rem;background:var(--soft);border:1px solid var(--line);border-radius:10px}.scanner-preview{position:relative;overflow:hidden;aspect-ratio:4/3;background:#111820;border-radius:8px}.scanner-preview video{width:100%;height:100%;object-fit:contain;display:block}.scanner-frame{position:absolute;inset:15% 20%;border:2px solid #fff9;border-radius:10px;pointer-events:none}.pairing-scanner p{min-height:2.6em}.peer-manual{margin:1rem 0;color:var(--muted);font-size:.8rem}.peer-manual summary,.peer-invite summary{cursor:pointer;font-size:.8rem}.peer-manual .peer-join{margin-top:.6rem;padding-top:0;border-top:0}.peer-invite details{margin-top:.7rem}.peer-connection-actions:empty{display:none}.peer-devices+.peer-name{padding-top:1rem;border-top:1px solid var(--line);margin-top:1rem}
 /* The square preview and decoder use the same centered camera region. */
 .scanner-preview{aspect-ratio:1}.scanner-preview video{object-fit:cover}.scanner-frame{inset:8%;border-radius:12px}.peer-scanning h2{padding-right:5rem;font-size:1.5rem;margin-bottom:1rem}.peer-scanning .pairing-scanner{padding:0;border:0;background:transparent}.peer-scanning .scanner-preview{width:min(100%,60svh);margin-inline:auto}.peer-scanning .pairing-scanner p{margin:.7rem 0}.peer-scanning .pairing-scanner>button{width:100%;min-height:44px}
+.session-history { margin:2rem 0; }
+.session-history h2 { font-size:1.35rem; }
+.past-session,.session-editor { padding:1.2rem; margin:.8rem 0; border:1px solid var(--line); border-radius:10px; background:var(--surface); }
+.past-session-heading { display:flex; justify-content:space-between; align-items:center; gap:1rem; }
+.past-session h3 { margin:0; text-transform:capitalize; font-size:1rem; }
+.past-session p,.session-editor p { color:var(--muted); font-size:.85rem; }
+.past-session summary { cursor:pointer; padding:.5rem 0; }
+.past-session li { margin:.5rem 0; }
+.session-note { white-space:pre-wrap; }
+.session-editor { display:grid; gap:1rem; }
+.session-editor label { display:grid; gap:.4rem; min-width:0; font-size:.8rem; }
+.session-editor input,.session-editor textarea,.session-editor select { width:100%; min-width:0; padding:.65rem; border:1px solid var(--input-line); border-radius:6px; color:var(--ink); background:var(--input); font:inherit; }
+.session-fields { display:grid; grid-template-columns:1fr 1fr 1fr; gap:1rem; }
+.session-editor fieldset { min-width:0; border:1px solid var(--line); border-radius:8px; padding:1rem; }
+.session-editor legend { font-weight:700; padding:0 .3rem; }
+.session-set { display:grid; grid-template-columns:3rem 1fr 1fr auto; align-items:center; gap:.75rem; margin-bottom:.8rem; }
+.session-set>span { font-size:.8rem; }
+@media(max-width:600px) { .session-fields { grid-template-columns:1fr; } .session-set { grid-template-columns:2.5rem 1fr 1fr; gap:.5rem; } .session-set>button { grid-column:2 / 4; justify-self:end; } .past-session-heading { align-items:flex-start; } .session-editor { padding:.8rem; } }
