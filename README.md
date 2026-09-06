@@ -5,13 +5,13 @@ A phone-first, chest-prioritized rolling Push/Pull/Legs workout tracker. The seq
 ## Features
 
 - Persistent next-workout sequence with start, elapsed-time, and finish controls
-- Separate Train and Progress destinations, with three focused workout tabs inside Train
+- Separate Train, Progress, and Sessions destinations, with three focused workout tabs inside Train
 - Gym-readable exercise rows with work sets, optional warm-ups, rest, cues, and click-to-enlarge public-domain photos
 - Crash-safe workout drafts and completed sessions with optional peer-to-peer browser sync
 - Previous-session context, per-set target placeholders, and double-progression suggestions
-- Edit past session times, bodyweight, notes, exercises, and sets from Progress
+- Edit past session times, bodyweight, notes, exercises, and sets from Sessions
 - Optional bodyweight and session notes
-- Full-width bodyweight chart plus exercise-selectable recorded-volume and working-weight charts
+- Responsive bodyweight, recorded-volume, and working-weight plots with readable axes, selectable points, previous/next reading controls, and accessible data tables
 - Session frequency, recent lift history, and genuine load/rep milestones
 - Header-accessible Autumn connection modal and direct completed-session sync with idempotent retries
 - Workout-history export and restore in structured JSON or spreadsheet-ready CSV, including workout timing, bodyweight, and notes
@@ -31,7 +31,7 @@ The dev server runs at `http://127.0.0.1:4173`, an origin already allowed by Aut
 
 ## Edit past sessions
 
-Open **Progress > Past sessions > Edit session**. Correct the start/end time, bodyweight, note, loads, or reps; add missed exercises/sets or remove incorrect entries. **Save changes** updates the session and its progression history together. **Cancel editing** discards the draft. Existing session and set IDs are preserved, and the active workout and next-workout sequence stay intact. If the session changes on another device while the editor is open, reopen it before saving.
+Open **Sessions > Edit session**. Correct the start/end time, bodyweight, note, loads, or reps; add missed exercises/sets or remove incorrect entries. **Save changes** updates the session and its progression history together. **Cancel editing** discards the draft. Existing session and set IDs are preserved, and the active workout and next-workout sequence stay intact. If the session changes on another device while the editor is open, reopen it before saving.
 
 Edits sync to paired Rolling PPL browsers. An existing Autumn receipt is retained, but the Autumn record is not updated automatically; correct that record separately.
 

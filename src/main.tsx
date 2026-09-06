@@ -4,6 +4,7 @@ import {
   DEFAULT_AUTUMN_URL, defaultAutumnSettings, getAutumnAccount, listAutumnProjects,
   pushWorkoutToAutumn, signInToAutumn, type AutumnProject, type AutumnSettings,
 } from "./autumn";
+import { TrendChart } from "./TrendChart";
 import { SessionHistory } from "./SessionHistory";
 import { DataMenu } from "./DataMenu";
 import { PeerSyncPanel } from "./PeerSyncPanel";
@@ -13,7 +14,7 @@ import { parseBackupText } from "./transfer";
 import { pruneCompletedDrafts, type DraftMap } from "./drafts";
 import { canonicalizeHistory, type HistoryMap, type SavedSession, type SetEntry } from "./historyMigration";
 import { nextStep, setTarget } from "./progression";
-import { availableChartExercises, bodyweightSeries, exerciseMetricSeries, type ExerciseSeries } from "./progressModel";
+import { availableChartExercises, bodyweightSeries, exerciseMetricSeries } from "./progressModel";
 import {
   WORKOUT_SEQUENCE, addWorkoutToHistory, completeWorkout, createActiveWorkout, elapsedLabel, liftMilestones,
   migrateLegacyHistory, nextWorkout as followingWorkout, selectedExerciseSets, sessionsInLastDays, workoutDurationMinutes,
@@ -22,7 +23,7 @@ import {
 import "./styles.css";
 
 type Theme = "light" | "dark";
-type AppView = "train" | "progress";
+type AppView = "train" | "sessions" | "progress";
 type Demo = { label: string; slug: string };
 type Exercise = {
   name: string; sets: string; reps: string; rest: string; warmup: string; cue: string;
@@ -161,30 +162,6 @@ function Workout({ workout, onOpen, history, drafts, enabled, activeWorkoutId, c
   return <section className={`workout ${workout}`} aria-labelledby={`${workout}-title`}><header className="workout-header"><div><h2 id={`${workout}-title`}>{workout}</h2><p>{data.summary}</p></div><span>{mustDoCount} must · {optionalCount} if time</span></header><p className="short-session"><strong>Minimum version:</strong> complete every Must do card when you can. A shortened session still advances the sequence.</p><div className="exercise-list">{data.exercises.map((exercise, index) => { const checked = Boolean(activeWorkoutId && checkpoints[exercise.name]?.workoutId === activeWorkoutId && checkpoints[exercise.name]?.fingerprint === exerciseFingerprint(drafts[exercise.name] ?? [])); return <Fragment key={exercise.name}>{index === mustDoCount && <div className="optional-divider"><span>If time</span><p>Useful additions, already ranked. Stop whenever you need to.</p></div>}<ExerciseRow exercise={exercise} index={index} onOpen={onOpen} history={history[exercise.name] ?? []} draft={drafts[exercise.name] ?? []} enabled={enabled} checked={checked} onDraftChange={(entries) => onDraftChange(exercise.name, entries)} onSave={(entries) => onSave(exercise.name, entries)} /></Fragment>; })}</div></section>;
 }
 
-function compactNumber(value: number, unit: "kg" | "kg·reps") {
-  if (unit === "kg·reps" && value >= 1000) return `${(value / 1000).toFixed(value >= 10_000 ? 0 : 1)}k`;
-  return Number.isInteger(value) ? String(value) : value.toFixed(1);
-}
-
-function LineChart({ series, unit, emptyTitle, emptyHint, label }: {
-  series: ExerciseSeries[]; unit: "kg" | "kg·reps"; emptyTitle: string; emptyHint: string; label: string;
-}) {
-  const points = series.flatMap((item) => item.points);
-  if (!points.length) return <div className="empty-chart"><strong>{emptyTitle}</strong><span>{emptyHint}</span></div>;
-  const values = points.map((point) => point.value); const rawMin = Math.min(...values); const rawMax = Math.max(...values);
-  const padding = Math.max(unit === "kg" ? 1 : 25, (rawMax - rawMin) * .12); const min = Math.max(0, rawMin - padding); const max = rawMax + padding; const spread = Math.max(1, max - min);
-  const dates = points.map((point) => Date.parse(point.date)); const firstDate = Math.min(...dates); const lastDate = Math.max(...dates); const dateSpread = Math.max(1, lastDate - firstDate);
-  const xFor = (date: string) => firstDate === lastDate ? 410 : 58 + ((Date.parse(date) - firstDate) / dateSpread) * 710;
-  const yFor = (value: number) => 224 - ((value - min) / spread) * 184;
-  const ticks = Array.from({ length: 4 }, (_, index) => min + ((max - min) * index) / 3).reverse();
-  const dateLabels = firstDate === lastDate ? [firstDate] : [firstDate, firstDate + dateSpread / 2, lastDate];
-  return <div className="line-chart"><svg viewBox="0 0 800 260" role="img" aria-label={label}>
-    {ticks.map((tick, index) => <g className="chart-grid" key={index}><line x1="58" y1={yFor(tick)} x2="768" y2={yFor(tick)} /><text x="48" y={yFor(tick) + 4}>{compactNumber(tick, unit)}</text></g>)}
-    {dateLabels.map((date, index) => <text className="chart-date" key={date} x={dateLabels.length === 1 ? 410 : index === 0 ? 58 : index === dateLabels.length - 1 ? 768 : 413} y="251" textAnchor={dateLabels.length === 1 ? "middle" : index === 0 ? "start" : index === dateLabels.length - 1 ? "end" : "middle"}>{new Date(date).toLocaleDateString(undefined, { month: "short", day: "numeric" })}</text>)}
-    {series.map((item, seriesIndex) => { const coordinates = item.points.map((point) => ({ ...point, x: xFor(point.date), y: yFor(point.value) })); return <g className={`chart-series series-${seriesIndex % 6}`} key={item.exercise}><polyline points={coordinates.map(({ x, y }) => `${x},${y}`).join(" ")} />{coordinates.map((point, pointIndex) => <circle key={`${point.date}-${point.value}-${pointIndex}`} cx={point.x} cy={point.y} r="4"><title>{item.exercise} · {new Date(point.date).toLocaleDateString()} · {compactNumber(point.value, unit)} {unit}</title></circle>)}</g>; })}
-  </svg><div className="chart-legend">{series.map((item, index) => <span className={`series-${index % 6}`} key={item.exercise}><i />{item.exercise}</span>)}</div></div>;
-}
-
 function ExercisePicker({ available, selected, onChange }: { available: string[]; selected: string[]; onChange: (selected: string[]) => void }) {
   const toggle = (exercise: string) => onChange(selected.includes(exercise) ? selected.filter((item) => item !== exercise) : [...selected, exercise]);
   const close = (event: MouseEvent<HTMLButtonElement>) => { const picker = event.currentTarget.closest("details"); if (picker instanceof HTMLDetailsElement) picker.open = false; };
@@ -192,14 +169,13 @@ function ExercisePicker({ available, selected, onChange }: { available: string[]
 }
 
 function BodyweightChart({ sessions }: { sessions: CompletedWorkout[] }) {
-  const readings = bodyweightSeries(sessions); const latest = readings.at(-1); const first = readings[0];
-  const delta = latest && first && readings.length > 1 ? latest.value - first.value : null;
+  const readings = useMemo(() => bodyweightSeries(sessions), [sessions]);
   const series = readings.length ? [{ exercise: "Bodyweight", points: readings }] : [];
-  return <article className="chart-card bodyweight-chart-card"><div className="chart-card-heading"><div><span className="eyebrow">Bodyweight</span><h3>{latest ? `${latest.value.toFixed(2)} kg` : "No readings"}</h3><p>{latest ? `${readings.length} reading${readings.length === 1 ? "" : "s"}${delta === null ? "" : ` · ${delta >= 0 ? "+" : ""}${delta.toFixed(2)} kg across this view`}` : "Add bodyweight when finishing a workout."}</p></div>{latest && <time dateTime={latest.date}>Latest · {new Date(latest.date).toLocaleDateString(undefined, { month: "short", day: "numeric" })}</time>}</div><LineChart series={series} unit="kg" emptyTitle="No bodyweight line yet." emptyHint="Your readings will appear here after a finished workout." label={`Bodyweight chart with ${readings.length} readings`} /></article>;
+  return <article className="chart-card bodyweight-chart-card"><div className="chart-card-heading"><div><h3>Bodyweight</h3><p>Your last 24 recorded weigh-ins.</p></div><span className="chart-context">Across sessions</span></div><TrendChart series={series} unit="kg" emptyTitle="No bodyweight readings yet." emptyHint="Add bodyweight when finishing or editing a session." label={`Bodyweight chart with ${readings.length} readings`} /></article>;
 }
 
 function ExerciseChart({ title, description, metric, history, storageKey }: { title: string; description: string; metric: "volume" | "load"; history: HistoryMap; storageKey: string }) {
-  const available = availableChartExercises(history);
+  const available = useMemo(() => availableChartExercises(history), [history]);
   const [selected, setSelected] = useState<string[]>(() => {
     const hasStoredChoice = localStorage.getItem(storageKey) !== null; const stored = readStored<string[]>(storageKey, []); const valid = stored.filter((exercise) => available.includes(exercise)).slice(0, 6);
     if (hasStoredChoice) return valid;
@@ -209,7 +185,7 @@ function ExerciseChart({ title, description, metric, history, storageKey }: { ti
   useEffect(() => { storeLocal(storageKey, selected); }, [selected, storageKey]);
   const series = exerciseMetricSeries(history, visible, metric);
   const unit = metric === "volume" ? "kg·reps" : "kg";
-  return <article className="chart-card exercise-chart-card"><div className="chart-card-heading"><div><span className="eyebrow">{metric === "volume" ? "Work performed" : "Top set"}</span><h3>{title}</h3><p>{description}</p></div><ExercisePicker available={available} selected={visible} onChange={setSelected} /></div><LineChart series={series} unit={unit} emptyTitle={visible.length ? "No numeric loads for this selection." : "Choose an exercise to draw the line."} emptyHint={visible.length ? "Loads recorded as BW or text cannot be plotted in kilograms." : "Use the exercise picker above."} label={`${title} chart for ${visible.join(", ") || "no selected exercises"}`} />{metric === "volume" && <p className="chart-footnote">Recorded-load volume uses load × reps. Dumbbell values remain per dumbbell; BW and text loads are excluded.</p>}</article>;
+  return <article className={`chart-card exercise-chart-card metric-${metric}`}><div className="chart-card-heading"><div><h3>{title}</h3><p>{description}</p></div><ExercisePicker available={available} selected={visible} onChange={setSelected} /></div><TrendChart series={series} unit={unit} emptyTitle={visible.length ? "No numeric loads for this selection." : "Choose an exercise to draw the line."} emptyHint={visible.length ? "Loads recorded as BW or text cannot be plotted in kilograms." : "Use the exercise picker above."} label={`${title} chart for ${visible.join(", ") || "no selected exercises"}`} />{metric === "volume" && <p className="chart-footnote">Recorded-load volume uses load × reps. Dumbbell values remain per dumbbell; BW and text loads are excluded.</p>}</article>;
 }
 
 function bestRecordedSet(sessions: SavedSession[]) {
@@ -223,7 +199,7 @@ function Progress({ sessions, history }: { sessions: CompletedWorkout[]; history
   const average = timed.length ? Math.round(timed.reduce((sum, duration) => sum + duration, 0) / timed.length) : 0;
   const liftHistory = Object.entries(history).filter(([, saved]) => saved.length > 0);
   const milestones = liftMilestones(history).slice(0, 6);
-  return <section className="progress" aria-labelledby="progress-title"><div className="section-heading progress-heading"><div><span className="eyebrow">Training record</span><h2 id="progress-title">Progress</h2></div><p>Facts from completed workouts—no streaks and no makeup debt.</p></div><BodyweightChart sessions={sessions} /><div className="metric-chart-grid"><ExerciseChart title="Volume" description="Total recorded load × reps for each workout." metric="volume" history={history} storageKey={VOLUME_EXERCISES_KEY} /><ExerciseChart title="Working weight" description="The heaviest completed set in each workout." metric="load" history={history} storageKey={LOAD_EXERCISES_KEY} /></div><div className="progress-support"><article className="frequency-card"><span>Last 28 days</span><strong>{recent.length}</strong><p>completed workout{recent.length === 1 ? "" : "s"}{average ? ` · ${average} min average` : ""}</p><div>{WORKOUT_SEQUENCE.map((workout) => <span className={workout} key={workout}>{workout} <b>{recent.filter((session) => session.workout === workout).length}</b></span>)}</div></article>{milestones.length > 0 && <div className="milestones"><h3>Recent milestones</h3><div>{milestones.map((milestone) => <article key={`${milestone.exercise}-${milestone.date}-${milestone.kind}`}><span>{milestone.kind === "load" ? "New load" : "Rep record"}</span><strong>{milestone.exercise}</strong><p>{milestone.load || "BW"} × {milestone.reps}</p><time>{new Date(milestone.date).toLocaleDateString(undefined, { month: "short", day: "numeric" })}</time></article>)}</div></div>}</div><div className="lift-progress"><h3>Recent lifts</h3>{liftHistory.length ? <div className="lift-grid">{liftHistory.map(([name, saved]) => { const record = bestRecordedSet(saved); return <details key={name}><summary><span>{name}</span><strong>{record ? `${record.load || "BW"} × ${record.reps}` : "—"}<small>recorded best</small></strong></summary><ol>{saved.slice(0, 4).map((session) => <li key={session.id}><time>{new Date(session.savedAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}</time><span>{formatSession(session)}</span></li>)}</ol></details>; })}</div> : <div className="empty-progress"><strong>No completed lifts yet.</strong><span>Finish a workout to begin the record.</span></div>}</div></section>;
+  return <section className="progress" aria-labelledby="progress-title"><div className="section-heading progress-heading"><div><h2 id="progress-title">Progress</h2></div><p>See how your training is changing.</p></div><BodyweightChart sessions={sessions} /><div className="metric-chart-grid"><ExerciseChart title="Training volume" description="Recorded load × reps in each session. Last 16 sessions per lift." metric="volume" history={history} storageKey={VOLUME_EXERCISES_KEY} /><ExerciseChart title="Working weight" description="Your heaviest completed set. Last 16 sessions per lift." metric="load" history={history} storageKey={LOAD_EXERCISES_KEY} /></div><div className="progress-support"><article className="frequency-card"><span>Last 28 days</span><strong>{recent.length}</strong><p>completed workout{recent.length === 1 ? "" : "s"}{average ? ` · ${average} min average` : ""}</p><div>{WORKOUT_SEQUENCE.map((workout) => <span className={workout} key={workout}>{workout} <b>{recent.filter((session) => session.workout === workout).length}</b></span>)}</div></article>{milestones.length > 0 && <div className="milestones"><h3>Recent milestones</h3><div>{milestones.map((milestone) => <article key={`${milestone.exercise}-${milestone.date}-${milestone.kind}`}><span>{milestone.kind === "load" ? "New load" : "Rep record"}</span><strong>{milestone.exercise}</strong><p>{milestone.load || "BW"} × {milestone.reps}</p><time>{new Date(milestone.date).toLocaleDateString(undefined, { month: "short", day: "numeric" })}</time></article>)}</div></div>}</div><div className="lift-progress"><h3>Recent lifts</h3>{liftHistory.length ? <div className="lift-grid">{liftHistory.map(([name, saved]) => { const record = bestRecordedSet(saved); return <details key={name}><summary><span>{name}</span><strong>{record ? `${record.load || "BW"} × ${record.reps}` : "—"}<small>recorded best</small></strong></summary><ol>{saved.slice(0, 4).map((session) => <li key={session.id}><time>{new Date(session.savedAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}</time><span>{formatSession(session)}</span></li>)}</ol></details>; })}</div> : <div className="empty-progress"><strong>No completed lifts yet.</strong><span>Finish a workout to begin the record.</span></div>}</div></section>;
 }
 
 function AutumnConnection({ settings, projects, status, busy, pending, onSettings, onSignIn, onTest, onLoad, onSync }: {
@@ -271,7 +247,7 @@ function App({ manager }: { manager: PeerSyncManager }) {
   const setBodyweight = bindField(manager, "bodyweight");
   const setSessionNote = bindField(manager, "sessionNote");
   const [activeTab, setActiveTab] = useState<WorkoutKey>(() => activeWorkout?.workout ?? next);
-  const [appView, setAppView] = useState<AppView>(() => readStored<AppView>(APP_VIEW_KEY, "train") === "progress" ? "progress" : "train");
+  const [appView, setAppView] = useState<AppView>(() => (value => value === "progress" || value === "sessions" ? value : "train")(readStored<AppView>(APP_VIEW_KEY, "train")));
   const [lightbox, setLightbox] = useState<LightboxImage | null>(null);
   const [autumnOpen, setAutumnOpen] = useState(false);
   const [finishing, setFinishing] = useState(false);
@@ -414,14 +390,14 @@ function App({ manager }: { manager: PeerSyncManager }) {
     };
   }, [activeWorkout, checkpoints, drafts]);
   return <>
-    <header className="app-header"><div className="app-brand"><h1>Rolling PPL</h1><p>Chest-prioritized · no weekly reset</p></div><nav className="primary-nav" aria-label="App sections"><button type="button" className={appView === "train" ? "active" : ""} aria-current={appView === "train" ? "page" : undefined} onClick={() => setAppView("train")}>Train{activeWorkout && <i aria-label="Workout in progress" />}</button><button type="button" className={appView === "progress" ? "active" : ""} aria-current={appView === "progress" ? "page" : undefined} onClick={() => setAppView("progress")}>Progress</button></nav><div className="header-actions"><PeerSyncPanel manager={manager} /><button className="utility-button" type="button" onClick={() => setAutumnOpen(true)}>Autumn{pending.length > 0 && <b>{pending.length}</b>}</button><DataMenu history={history} workouts={completed} onImport={importHistory} />{installPrompt && <button className="install-button" type="button" onClick={installApp}>Install</button>}<button className="theme-toggle" type="button" onClick={() => setTheme((current) => current === "dark" ? "light" : "dark")} aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}><span aria-hidden="true">{theme === "dark" ? "☀" : "☾"}</span></button></div></header>
+    <header className="app-header"><div className="app-brand"><h1>Rolling PPL</h1><p>Chest-prioritized · no weekly reset</p></div><nav className="primary-nav" aria-label="App sections"><button type="button" className={appView === "train" ? "active" : ""} aria-current={appView === "train" ? "page" : undefined} onClick={() => setAppView("train")}>Train{activeWorkout && <i aria-label="Workout in progress" />}</button><button type="button" className={appView === "progress" ? "active" : ""} aria-current={appView === "progress" ? "page" : undefined} onClick={() => setAppView("progress")}>Progress</button><button type="button" className={appView === "sessions" ? "active" : ""} aria-current={appView === "sessions" ? "page" : undefined} onClick={() => setAppView("sessions")}>Sessions</button></nav><div className="header-actions"><PeerSyncPanel manager={manager} /><button className="utility-button" type="button" onClick={() => setAutumnOpen(true)}>Autumn{pending.length > 0 && <b>{pending.length}</b>}</button><DataMenu history={history} workouts={completed} onImport={importHistory} />{installPrompt && <button className="install-button" type="button" onClick={installApp}>Install</button>}<button className="theme-toggle" type="button" onClick={() => setTheme((current) => current === "dark" ? "light" : "dark")} aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}><span aria-hidden="true">{theme === "dark" ? "☀" : "☾"}</span></button></div></header>
     <main>
       {appView === "train" ? <><TrainingRail next={next} active={activeWorkout} finishEndedAt={finishEndedAt ?? undefined} finishing={finishing} latest={latest} syncBusy={autumnBusy} onSetNext={(workout) => { setNext(workout); setActiveTab(workout); }} onStart={startWorkout} onFinish={beginFinish} onCancel={cancelWorkout} onSync={syncWorkout} />
         {finishing && activeWorkout && <FinishWorkout workout={activeWorkout.workout} bodyweight={bodyweight} note={sessionNote} error={finishError} summary={finishSummary} onBodyweight={setBodyweight} onNote={setSessionNote} onBack={resumeWorkout} onSave={saveFinishedWorkout} />}
         <div className="workout-tabs" role="tablist" aria-label="Choose a workout to view">{WORKOUT_SEQUENCE.map((key) => <button key={key} role="tab" aria-selected={activeTab === key} className={activeTab === key ? `active ${key}` : ""} onClick={() => setActiveTab(key)}>{key}<small>{activeWorkout?.workout === key ? "logging now" : `${workouts[key].exercises.length} exercises`}</small></button>)}</div>
         <p className="storage-note">Entries recover automatically. Save each exercise when done; finish once.</p>
         <Workout workout={activeTab} onOpen={setLightbox} history={history} drafts={drafts} enabled={activeWorkout?.workout === activeTab && !finishing} activeWorkoutId={activeWorkout?.workout === activeTab ? activeWorkout.id : undefined} checkpoints={checkpoints} onDraftChange={updateDraft} onSave={saveExercise} /><Notes /></>
-        : <><SessionHistory sessions={completed} definitions={sessionDefinitions} onSave={saveSessionEdit} /><Progress sessions={completed} history={history} /></>}
+        : appView === "sessions" ? <SessionHistory sessions={completed} definitions={sessionDefinitions} onSave={saveSessionEdit} /> : <Progress sessions={completed} history={history} />}
     </main>
     <footer><p><strong>Rolling PPL</strong> · Keep the sequence; skip the weekly reset.</p><p>Exercise imagery from the public-domain <a href="https://github.com/yuhonas/free-exercise-db" target="_blank" rel="noreferrer">Free Exercise DB</a> (Unlicense).</p></footer>
     <Lightbox image={lightbox} onClose={() => setLightbox(null)} />

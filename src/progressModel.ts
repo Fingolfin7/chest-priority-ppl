@@ -13,6 +13,20 @@ export type ExerciseSeries = {
   points: ChartPoint[];
 };
 
+export function chartScale(values: number[]) {
+  const finite = values.filter(Number.isFinite);
+  const low = finite.length ? Math.min(...finite) : 0;
+  const high = finite.length ? Math.max(...finite) : 1;
+  const span = Math.max(high - low, Math.abs(high) * .04, 1);
+  const roughStep = span / 3;
+  const power = 10 ** Math.floor(Math.log10(roughStep));
+  const step = [1, 2, 2.5, 5, 10].map((factor) => factor * power).find((candidate) => candidate >= roughStep)!;
+  const min = Math.max(0, Math.floor(low / step) * step);
+  const max = Math.ceil((high + span * .08) / step) * step;
+  const ticks = Array.from({ length: Math.round((max - min) / step) + 1 }, (_, index) => Number((min + index * step).toPrecision(12)));
+  return { min, max, ticks };
+}
+
 function numericValue(value: string) {
   const parsed = Number(value.trim().replace(",", "."));
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
