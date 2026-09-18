@@ -3,6 +3,8 @@ export type SavedSession = { id: string; savedAt: string; sets: SetEntry[] };
 export type HistoryMap = Record<string, SavedSession[]>;
 
 const EXERCISE_NAME_ALIASES: Record<string, string> = {
+  "Lat pulldown or pull-ups": "Lat pulldown",
+  "Leg press or Bulgarian split squat": "Leg press",
   "Rear-delt fly or face pull": "Rear-delt fly",
   "Calf raise or abdominal work": "Ab crunch machine",
 };

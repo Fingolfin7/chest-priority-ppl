@@ -10,6 +10,7 @@ export type SyncSnapshot = {
   activeWorkout: ActiveWorkout | null;
   next: WorkoutKey;
   checkpoints: Record<string, { workoutId: string; fingerprint: string }>;
+  exerciseChoices: Record<string, string>;
   bodyweight: string;
   sessionNote: string;
 };
@@ -36,7 +37,7 @@ const genesis = Automerge.change(Automerge.init<SyncData>({ actor: "000000000000
 });
 
 export function emptySyncSnapshot(): SyncSnapshot {
-  return { history: {}, completed: [], drafts: {}, activeWorkout: null, next: "push", checkpoints: {}, bodyweight: "", sessionNote: "" };
+  return { history: {}, completed: [], drafts: {}, activeWorkout: null, next: "push", checkpoints: {}, exerciseChoices: {}, bodyweight: "", sessionNote: "" };
 }
 
 function setId(kind: string, owner: string, exercise: string, set: StableSet, index: number) {
@@ -102,6 +103,9 @@ function flatten(snapshot: SyncSnapshot, relatedWorkouts = snapshot.completed): 
   Object.entries(snapshot.checkpoints).forEach(([name, checkpoint]) => {
     put(["checkpoint", checkpoint.workoutId, canonicalExerciseName(name)], JSON.stringify(checkpoint));
   });
+  Object.entries(snapshot.exerciseChoices ?? {}).forEach(([slot, exercise]) => {
+    put(["choice", scope, slot], canonicalExerciseName(exercise));
+  });
   return fields;
 }
 
@@ -137,6 +141,7 @@ function recordParents(parts: string[]): string[] {
     return parents;
   }
   if (parts[0] === "draft" && parts[1] !== UNASSIGNED) return [pathKey("active", parts[1], "alive")];
+  if (parts[0] === "choice" && parts[1] !== UNASSIGNED) return [pathKey("active", parts[1], "alive")];
   return [];
 }
 
@@ -169,7 +174,7 @@ export function updateSyncDoc(doc: Automerge.Doc<SyncData>, previous: SyncSnapsh
     // membership register so delete/edit becomes an explicit retained conflict.
     const parts: string[] = JSON.parse(key);
     recordParents(parts).forEach((parent) => { if (after.get(parent) === true) writes.set(parent, true); });
-    const activeScope = parts[0] === "draft" || parts[0] === "draftExercise" || parts[0] === "active" ? parts[1] : parts[0] === "set" && parts[1] === "draft" ? parts[2] : null;
+    const activeScope = parts[0] === "draft" || parts[0] === "draftExercise" || parts[0] === "active" || parts[0] === "choice" ? parts[1] : parts[0] === "set" && parts[1] === "draft" ? parts[2] : null;
     if (activeScope && activeScope === next.activeWorkout?.id) writes.set(pathKey("state", "activeId"), activeScope);
   });
   before.forEach((_value, key) => {
@@ -235,6 +240,7 @@ function validateField(parts: string[], value: Scalar) {
   if (kind === "draftExercise" && parts.length === 4) validPath = field === "alive";
   if (kind === "set" && parts.length === 6 && ["workout", "history", "draft"].includes(parts[1])) validPath = ["alive", "load", "reps", "order"].includes(field!);
   if (kind === "draft" && parts.length === 3) validPath = ["bodyweight", "note"].includes(field!);
+  if (kind === "choice" && parts.length === 3) validPath = true;
   if (kind === "state" && parts.length === 2) validPath = ["activeId", "next"].includes(field!);
   if (kind === "historyLink" && parts.length === 3) {
     if (typeof value !== "string" || !value) throw new Error("Invalid legacy workout link.");
@@ -339,7 +345,10 @@ function projected(fields: Flat): SyncSnapshot {
     // display a false Saved badge for data the user has not confirmed.
     if (saved.fingerprint === JSON.stringify(selected)) Object.defineProperty(checkpoints, parts[2], { value: saved, enumerable: true, configurable: true, writable: true });
   }
-  return { history, completed, drafts, activeWorkout, next: text(["state", "next"], "push") as WorkoutKey, checkpoints,
+  const exerciseChoices = Object.fromEntries(entries
+    .filter(({ parts, value }) => parts[0] === "choice" && parts[1] === scope && typeof value === "string")
+    .map(({ parts, value }) => [parts[2], value as string]));
+  return { history, completed, drafts, activeWorkout, next: text(["state", "next"], "push") as WorkoutKey, checkpoints, exerciseChoices,
     bodyweight: text(["draft", scope, "bodyweight"], ""), sessionNote: text(["draft", scope, "note"], "") };
 }
 
@@ -356,6 +365,7 @@ function conflictLabel(parts: string[], fields: Flat) {
   const friendly: Record<string, string> = { alive: "deletion", load: "weight", reps: "reps", note: "note", bodyweight: "bodyweight", next: "next workout", activeId: "active workout", sync: "Autumn receipt", order: "order", startedAt: "start time", endedAt: "end time" };
   if (parts[0] === "set") return `${parts[3]} · set ${Number(fields.get(pathKey(...parts.slice(0, -1), "order")) ?? 0) + 1} · ${friendly[field] ?? field}`;
   if (parts[0] === "exercise" || parts[0] === "draftExercise" || parts[0] === "checkpoint") return `${parts[2]} · ${friendly[field] ?? "saved exercise"}`;
+  if (parts[0] === "choice") return `${parts[2]} · selected exercise`;
   if (parts[0] === "workout" || parts[0] === "active") {
     const workout = String(fields.get(pathKey(parts[0], parts[1], "workout")) ?? "Workout");
     const date = String(fields.get(pathKey(parts[0], parts[1], "startedAt")) ?? "").slice(0, 10);
