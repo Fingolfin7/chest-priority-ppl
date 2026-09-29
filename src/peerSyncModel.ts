@@ -204,6 +204,45 @@ function parsePath(key: string): string[] {
   return parts as string[];
 }
 
+function canonicalFieldPath(parts: string[]) {
+  const nameIndex = parts[0] === "exercise" || parts[0] === "draftExercise" || parts[0] === "checkpoint" ? 2
+    : parts[0] === "history" || parts[0] === "historyLink" ? 1
+      : parts[0] === "set" ? 3 : -1;
+  if (nameIndex < 0) return null;
+  const canonical = canonicalExerciseName(parts[nameIndex]);
+  if (canonical === parts[nameIndex]) return null;
+  const migrated = [...parts];
+  migrated[nameIndex] = canonical;
+  return pathKey(...migrated);
+}
+
+// Older synced browsers retain the combined exercise names in IndexedDB even
+// after the localStorage import began canonicalizing them. Move those stable
+// sync paths once, keeping existing post-split records and set identities.
+export function migrateExerciseAliases(doc: Automerge.Doc<SyncData>): Automerge.Doc<SyncData> {
+  const fields = readFields(doc);
+  const copies: Flat = new Map();
+  const tombstones: Flat = new Map();
+  for (const [key, value] of fields) {
+    const parts = parsePath(key);
+    const migratedKey = canonicalFieldPath(parts);
+    if (!migratedKey) continue;
+    if (!fields.has(migratedKey) && !copies.has(migratedKey)) copies.set(migratedKey, value);
+    if (parts.at(-1) === "alive" && value === true) tombstones.set(key, false);
+    if (parts[0] === "checkpoint" && value !== null) tombstones.set(key, null);
+  }
+  if (!copies.size && !tombstones.size) return doc;
+  const migrated = Automerge.change(doc, "Carry exercise history into separate trackers", (draft) => {
+    copies.forEach((value, key) => { draft.values[key] = new Automerge.ImmutableString(JSON.stringify(value)); });
+    tombstones.forEach((value, key) => {
+      delete draft.values[key];
+      draft.values[key] = new Automerge.ImmutableString(JSON.stringify(value));
+    });
+  });
+  validateSyncDoc(migrated);
+  return migrated;
+}
+
 function receipt(raw: Scalar): WorkoutSync {
   if (typeof raw !== "string") throw new Error("Invalid Autumn sync receipt.");
   let value: unknown;

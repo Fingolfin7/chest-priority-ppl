@@ -1,5 +1,5 @@
 import * as A from "@automerge/automerge";
-import { createSyncDoc, updateSyncDoc, projectSyncDoc, listSyncConflicts, resolveSyncConflict, validateSyncDoc, type SyncSnapshot, type SyncData } from "./peerSyncModel.ts";
+import { createSyncDoc, updateSyncDoc, projectSyncDoc, listSyncConflicts, resolveSyncConflict, validateSyncDoc, migrateExerciseAliases, type SyncSnapshot, type SyncData } from "./peerSyncModel.ts";
 import { createIdentity, type DeviceIdentity } from "./peerSyncCrypto.ts";
 import { PeerSyncTransport, type PairedDevice, type PairRequest } from "./peerSyncTransport.ts";
 
@@ -105,6 +105,7 @@ export class PeerSyncManager {
           const recovery = JSON.parse(journal) as { before: SyncSnapshot; after: SyncSnapshot };
           this.doc = updateSyncDoc(this.doc, recovery.before, recovery.after);
         }
+        this.doc = migrateExerciseAliases(this.doc);
         this.identity = saved.identity; this.devices = saved.devices; this.revoked = new Set(saved.revoked);
         this.original = saved.original;
         this.view = { ...this.view, name: saved.name, enabled: saved.enabled };
@@ -306,8 +307,9 @@ export class PeerSyncManager {
     const state = this.states.get(id) ?? A.initSyncState();
     const [received, nextState] = A.receiveSyncMessage(A.clone(this.doc), state, message.subarray(1));
     validateSyncDoc(received);
-    const changed = heads(received) !== heads(this.doc);
-    this.doc = received; this.states.set(id, nextState);
+    const upgraded = migrateExerciseAliases(received);
+    const changed = heads(upgraded) !== heads(this.doc);
+    this.doc = upgraded; this.states.set(id, nextState);
     if (changed) { this.publish(); this.journal(); }
     await this.durable();
     if (!this.isConnection(id, transport, epoch)) return;

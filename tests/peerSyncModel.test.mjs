@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import * as A from '@automerge/automerge';
-import {createSyncDoc,emptySyncSnapshot,listSyncConflicts,projectSyncDoc,resolveSyncConflict,updateSyncDoc,validateSyncDoc} from '../src/peerSyncModel.ts';
+import {createSyncDoc,emptySyncSnapshot,listSyncConflicts,migrateExerciseAliases,projectSyncDoc,resolveSyncConflict,updateSyncDoc,validateSyncDoc} from '../src/peerSyncModel.ts';
 const exercise='Barbell bench press';
 const key=(...parts)=>JSON.stringify(parts);
 const merge=(a,b)=>A.merge(A.clone(a),b);
@@ -10,6 +10,33 @@ function snapshot(...completed){const s=emptySyncSnapshot();s.completed=complete
 function edit(doc,change){const before=projectSyncDoc(doc),after=structuredClone(before);change(after);return updateSyncDoc(doc,before,after);}
 function choose(doc,k,value){const c=listSyncConflicts(doc).find(c=>c.key===k);assert.ok(c,`Missing conflict ${k}`);const option=c.options.find(o=>o.value===value);assert.ok(option,`Missing option ${value}`);return resolveSyncConflict(doc,k,option.id);}
 function active(){const s=emptySyncSnapshot();s.activeWorkout={id:'active-1',workout:'push',startedAt:'2026-09-01T05:00:00.000Z'};s.drafts={[exercise]:[{load:'55',reps:'8'}]};s.checkpoints={[exercise]:{workoutId:'active-1',fingerprint:JSON.stringify(s.drafts[exercise])}};s.bodyweight='65';s.sessionNote='Started on phone';return s;}
+function renamedSyncPaths(doc, current, previous){return A.change(doc,draft=>{for(const path of Object.keys(draft.values)){const parts=JSON.parse(path);const index=['exercise','draftExercise','checkpoint'].includes(parts[0])?2:['history','historyLink'].includes(parts[0])?1:parts[0]==='set'?3:-1;if(parts[index]!==current)continue;parts[index]=previous;draft.values[JSON.stringify(parts)]=new A.ImmutableString(String(draft.values[path]));delete draft.values[path];}});}
+function namedWorkout(id,date,name,reps){const saved=workout(id,date);saved.workout=name==='Leg press'?'legs':'pull';saved.exercises=[{name,priority:'must',sets:[{id:`${id}-set`,load:'50',reps}]}];saved.sync={status:'synced',autumnSessionId:Number(date.slice(-2))};return saved;}
+test('old combined-name sync records join newer pulldown and pull-up sessions without replacing either',()=>{
+const old=namedWorkout('old-pulldown','2026-09-01','Lat pulldown','8');
+const newer=namedWorkout('new-pulldown','2026-09-08','Lat pulldown','10');
+const pullups=namedWorkout('new-pullups','2026-09-15','Pull-ups','6');
+let legacy=renamedSyncPaths(createSyncDoc(snapshot(old)),'Lat pulldown','Lat pulldown or pull-ups');
+const liftOnly=emptySyncSnapshot();liftOnly.history['Lat pulldown']=[{id:'saved-old-lift',savedAt:'2026-08-25T06:00:00.000Z',sets:[{id:'saved-old-set',load:'45',reps:'9'}]}];
+legacy=merge(legacy,renamedSyncPaths(createSyncDoc(liftOnly),'Lat pulldown','Lat pulldown or pull-ups'));
+assert.equal(projectSyncDoc(legacy).history['Lat pulldown'],undefined);
+const mixed=merge(legacy,createSyncDoc(snapshot(newer,pullups)));
+const migrated=migrateExerciseAliases(mixed),result=projectSyncDoc(migrated);
+assert.deepEqual(result.completed.map(w=>w.id).sort(),['new-pulldown','new-pullups','old-pulldown']);
+assert.deepEqual(result.history['Lat pulldown'].map(s=>s.sets[0].reps).sort(),['10','8','9']);
+assert.deepEqual(result.history['Pull-ups'].map(s=>s.sets[0].reps),['6']);
+assert.equal(result.history['Lat pulldown or pull-ups'],undefined);
+assert.equal(result.completed.find(w=>w.id==='old-pulldown').sync.autumnSessionId,1);
+assert.equal(result.completed.find(w=>w.id==='old-pulldown').exercises[0].sets[0].id,'old-pulldown-set');
+assert.deepEqual(A.getHeads(migrateExerciseAliases(migrated)),A.getHeads(migrated));
+assert.deepEqual(projectSyncDoc(A.load(A.save(migrated))),result);
+assert.deepEqual(listSyncConflicts(migrated),[]);
+const corrected=edit(migrated,s=>{s.completed.find(w=>w.id==='old-pulldown').exercises[0].sets[0].reps='11';});
+assert.deepEqual(projectSyncDoc(corrected).history['Lat pulldown'].map(s=>s.sets[0].reps).sort(),['10','11','9']);
+});
+for(const [name,oldName] of [['Leg press','Leg press or Bulgarian split squat'],['Rear-delt fly','Rear-delt fly or face pull'],['Ab crunch machine','Calf raise or abdominal work']]){
+test(`${oldName} history migrates into ${name}`,()=>{const old=namedWorkout(`old-${name}`,'2026-09-02',name,'12');const legacy=renamedSyncPaths(createSyncDoc(snapshot(old)),name,oldName);const result=projectSyncDoc(migrateExerciseAliases(legacy));assert.equal(result.history[name][0].sets[0].reps,'12');assert.equal(result.history[oldName],undefined);});
+}
 test('identical independent imports merge once, seed stable set IDs, and round-trip history',()=>{
 const s=snapshot(workout()),m=merge(createSyncDoc(s),createSyncDoc(structuredClone(s))),p=projectSyncDoc(m);
 assert.equal(p.completed.length,1);assert.equal(p.history[exercise].length,1);assert.ok(p.completed[0].exercises[0].sets.every(s=>s.id));assert.deepEqual(listSyncConflicts(m),[]);assert.deepEqual(projectSyncDoc(A.load(A.save(m))),p);
