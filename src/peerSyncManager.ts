@@ -2,6 +2,7 @@ import * as A from "@automerge/automerge";
 import { createSyncDoc, updateSyncDoc, projectSyncDoc, listSyncConflicts, resolveSyncConflict, validateSyncDoc, migrateExerciseAliases, type SyncSnapshot, type SyncData } from "./peerSyncModel.ts";
 import { createIdentity, type DeviceIdentity } from "./peerSyncCrypto.ts";
 import { PeerSyncTransport, type PairedDevice, type PairRequest } from "./peerSyncTransport.ts";
+import { recoveryJournal, recoverySnapshots, type RecoveryJournal } from "./recoveryJournal.ts";
 
 type Persisted = {
   version: 1; document: Uint8Array; identity: DeviceIdentity; devices: PairedDevice[];
@@ -45,8 +46,8 @@ function writeState(db: IDBDatabase, state: Persisted): Promise<void> {
   });
 }
 
-/** One store owns the React snapshot and the replicated history. UI setters and
- * incoming messages both update it synchronously; only disk/network I/O queues. */
+/** One store owns the React snapshot and replicated history. Typing updates the
+ * snapshot and crash journal immediately; replication is batched between edits. */
 export class PeerSyncManager {
   private doc: A.Doc<SyncData>;
   private snapshot: SyncSnapshot;
@@ -66,6 +67,9 @@ export class PeerSyncManager {
   private saving: Promise<void> = Promise.resolve();
   private receiving: Promise<void> = Promise.resolve();
   private scheduled = false;
+  private inputBaseline?: SyncSnapshot;
+  private inputTimer?: ReturnType<typeof setTimeout>;
+  private inputDeadline?: ReturnType<typeof setTimeout>;
   private view: SyncView = { enabled: false, status: "Pair a browser to start syncing.", error: "", name: "My browser", invite: "", request: null, devices: [], conflicts: [], removed: false };
   constructor(initial: SyncSnapshot) {
     this.original = structuredClone(initial);
@@ -83,8 +87,11 @@ export class PeerSyncManager {
       conflicts: listSyncConflicts(this.doc) };
     this.listeners.forEach((listener) => listener());
   }
-  private publish() {
+  private publish(inputBaseline?: SyncSnapshot) {
     this.snapshot = projectSyncDoc(this.doc);
+    // Draft commits cannot change history, receipts, or the active workout.
+    // Retain their references so React does not rewrite the history mirrors.
+    if (inputBaseline) this.snapshot = { ...this.snapshot, history: inputBaseline.history, completed: inputBaseline.completed, activeWorkout: inputBaseline.activeWorkout };
     this.dataListeners.forEach((listener) => listener());
     this.refresh();
   }
@@ -102,7 +109,7 @@ export class PeerSyncManager {
         // exits, without reconstructing them from partially written mirror keys.
         const journal = localStorage.getItem(RECOVERY_KEY);
         if (journal) {
-          const recovery = JSON.parse(journal) as { before: SyncSnapshot; after: SyncSnapshot };
+          const recovery = recoverySnapshots(this.durableSnapshot, JSON.parse(journal) as RecoveryJournal);
           this.doc = updateSyncDoc(this.doc, recovery.before, recovery.after);
         }
         this.doc = migrateExerciseAliases(this.doc);
@@ -122,21 +129,44 @@ export class PeerSyncManager {
   }
   set<K extends keyof SyncSnapshot>(key: K, action: SyncSnapshot[K] | ((previous: SyncSnapshot[K]) => SyncSnapshot[K])) {
     const value = typeof action === "function" ? (action as (previous: SyncSnapshot[K]) => SyncSnapshot[K])(this.snapshot[key]) : action;
+    if (value === this.snapshot[key]) return;
+    if (key === "drafts" || key === "bodyweight" || key === "sessionNote") {
+      this.inputBaseline ??= this.snapshot;
+      this.snapshot = { ...this.snapshot, [key]: value };
+      this.journal();
+      this.dataListeners.forEach((listener) => listener());
+      clearTimeout(this.inputTimer);
+      this.inputTimer = setTimeout(() => this.flushPendingInputs(), 250);
+      this.inputDeadline ??= setTimeout(() => this.flushPendingInputs(), 1000);
+      return;
+    }
     this.change({ ...this.snapshot, [key]: value });
   }
+  flushPendingInputs() {
+    if (!this.inputBaseline) return;
+    const baseline = this.inputBaseline;
+    const updated = updateSyncDoc(this.doc, baseline, this.snapshot);
+    clearTimeout(this.inputTimer); clearTimeout(this.inputDeadline);
+    this.inputTimer = undefined; this.inputDeadline = undefined; this.inputBaseline = undefined;
+    if (updated === this.doc) return;
+    this.doc = updated; this.publish(baseline); this.journal(); this.schedule();
+  }
   change(next: SyncSnapshot) {
+    this.flushPendingInputs();
     const updated = updateSyncDoc(this.doc, this.snapshot, next);
     if (updated === this.doc) return;
     this.doc = updated; this.publish(); this.journal(); this.schedule();
   }
   resolve(key: string, optionId: string) {
+    this.flushPendingInputs();
     this.doc = resolveSyncConflict(this.doc, key, optionId); this.publish(); this.journal(); this.schedule();
   }
   private journal() {
-    try { localStorage.setItem(RECOVERY_KEY, JSON.stringify({ before: this.durableSnapshot, after: this.snapshot })); }
+    try { localStorage.setItem(RECOVERY_KEY, JSON.stringify(recoveryJournal(this.durableSnapshot, this.snapshot))); }
     catch { this.fail(new Error("Crash recovery could not save. Keep this page open until synced or export a backup.")); }
   }
   private persist() {
+    this.flushPendingInputs();
     if (!this.db || !this.identity) return Promise.reject(new Error("This browser could not open its sync storage."));
     const baseline = this.snapshot;
     const state: Persisted = { version: 1, document: A.save(this.doc), identity: this.identity,
@@ -156,6 +186,7 @@ export class PeerSyncManager {
     });
   }
   private async durable() {
+    this.flushPendingInputs();
     // Never acknowledge a received change before IndexedDB commits it.
     for (;;) { const before = heads(this.doc); await this.persist(); if (before === heads(this.doc)) return; }
   }
@@ -280,6 +311,7 @@ export class PeerSyncManager {
   private async receive(id: string, message: Uint8Array, transport: PeerSyncTransport, epoch: number) {
     if (!this.isConnection(id, transport, epoch)) return;
     if (!message.length || message.length > 8 * 1024 * 1024) throw new Error("A device sent an invalid sync message.");
+    this.flushPendingInputs();
     if (message[0] === 2) {
       const removed: unknown = JSON.parse(decoder.decode(message.subarray(1)));
       if (!Array.isArray(removed) || removed.length > 1000 || removed.some((entry) => typeof entry !== "string" || entry.length > 120)) throw new Error("Invalid device removal message.");

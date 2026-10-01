@@ -21,6 +21,11 @@ export type SyncData = { version: number; values: Record<string, Automerge.Immut
 export type SyncConflict = { key: string; label: string; options: Array<{ id: string; value: string }> };
 type Scalar = string | number | boolean | null;
 type Flat = Map<string, Scalar>;
+// Automerge documents are immutable. Reuse validated reads across projection,
+// validation and conflict display instead of scanning the same history again.
+const fieldCache = new WeakMap<Automerge.Doc<SyncData>, Flat>();
+const snapshotCache = new WeakMap<Automerge.Doc<SyncData>, SyncSnapshot>();
+const conflictCache = new WeakMap<Automerge.Doc<SyncData>, Map<string, ReturnType<typeof alternatives>>>();
 type StableSet = SetEntry & { id?: string };
 const UNASSIGNED = "unassigned";
 const WORKOUTS = ["push", "pull", "legs"];
@@ -163,7 +168,9 @@ export function createSyncDoc(snapshot: SyncSnapshot = emptySyncSnapshot()): Aut
 
 export function updateSyncDoc(doc: Automerge.Doc<SyncData>, previous: SyncSnapshot, next: SyncSnapshot): Automerge.Doc<SyncData> {
   const related = [...previous.completed, ...next.completed];
-  const before = flatten(previous, related); const after = flatten(next, related);
+  const onlyDrafts = previous.history === next.history && previous.completed === next.completed;
+  const before = flatten(onlyDrafts ? { ...previous, history: {}, completed: [] } : previous, related);
+  const after = flatten(onlyDrafts ? { ...next, history: {}, completed: [] } : next, related);
   const writes: Flat = new Map();
   after.forEach((value, key) => {
     if (before.get(key) === value) return;
@@ -192,6 +199,21 @@ export function updateSyncDoc(doc: Automerge.Doc<SyncData>, previous: SyncSnapsh
   const changed = Automerge.change(doc, "Update workout data", (draft) => {
     writes.forEach((value, key) => { delete draft.values[key]; draft.values[key] = new Automerge.ImmutableString(JSON.stringify(value)); });
   });
+  // Local changes only touch these scalar registers. Unchanged fields and
+  // hidden conflicts have already been validated on this immutable document.
+  // Received/loaded documents still take the complete validation path.
+  const fields = new Map(readFields(doc));
+  const conflicts = new Map(conflictCache.get(doc)!);
+  for (const key of writes.keys()) {
+    const parts = parsePath(key); const value = decoded(changed.values[key]);
+    validateField(parts, value);
+    const choices = alternatives(changed, key);
+    choices.forEach((choice) => validateField(parts, choice.value));
+    if (choices.length) conflicts.set(key, choices); else conflicts.delete(key);
+    fields.set(key, parts.at(-1) === "alive" && choices.some((choice) => choice.value === false) ? false : value);
+  }
+  if (fields.size > MAX_FIELDS) throw new Error("The sync document contains too many fields.");
+  fieldCache.set(changed, fields); conflictCache.set(changed, conflicts);
   validateSyncDoc(changed);
   return changed;
 }
@@ -300,25 +322,48 @@ function validateField(parts: string[], value: Scalar) {
 }
 
 function readFields(doc: Automerge.Doc<SyncData>): Flat {
+  const cached = fieldCache.get(doc);
+  if (cached) return cached;
   if (doc.version !== 1 || !doc.values || typeof doc.values !== "object" || Array.isArray(doc.values) || Object.keys(doc).some((key) => !["version", "values"].includes(key))) throw new Error("Unsupported sync document.");
   if (Automerge.getConflicts(doc, "values") || Automerge.getConflicts(doc, "version")) throw new Error("Sync document has an incompatible schema root.");
   const entries = Object.entries(doc.values);
   if (entries.length > MAX_FIELDS) throw new Error("The sync document contains too many fields.");
   const fields: Flat = new Map();
+  const conflicts = new Map<string, ReturnType<typeof alternatives>>();
   for (const [key, raw] of entries) {
     const parts = parsePath(key); const value = decoded(raw);
     validateField(parts, value);
     const choices = alternatives(doc, key);
     choices.forEach((choice) => validateField(parts, choice.value));
+    if (choices.length) conflicts.set(key, choices);
     // Deletion wins the projection until the user resolves its conflict. The
     // retained edit is still available and choosing Keep restores the record.
     fields.set(key, parts.at(-1) === "alive" && choices.some((choice) => choice.value === false) ? false : value);
   }
+  fieldCache.set(doc, fields); conflictCache.set(doc, conflicts);
   return fields;
 }
 
 function projected(fields: Flat): SyncSnapshot {
   const entries = Array.from(fields, ([key, value]) => ({ parts: JSON.parse(key) as string[], value }));
+  const memberships = new Map<string, string[][]>();
+  const groupedSets = new Map<string, string[][]>();
+  const groupedExercises = new Map<string, string[][]>();
+  for (const { parts } of entries) {
+    if (parts.at(-1) !== "alive") continue;
+    const id = parts.slice(1, -1);
+    const group = memberships.get(parts[0]) ?? [];
+    group.push(id); memberships.set(parts[0], group);
+    if (parts[0] === "set") {
+      const owner = pathKey(...id.slice(0, 3));
+      const sets = groupedSets.get(owner) ?? [];
+      sets.push(id); groupedSets.set(owner, sets);
+    }
+    if (parts[0] === "exercise") {
+      const exercises = groupedExercises.get(id[0]) ?? [];
+      exercises.push(id); groupedExercises.set(id[0], exercises);
+    }
+  }
   const get = (parts: string[], fallback?: Scalar) => fields.get(pathKey(...parts)) ?? fallback;
   const text = (parts: string[], fallback?: string): string => {
     const value = get(parts, fallback);
@@ -326,16 +371,16 @@ function projected(fields: Flat): SyncSnapshot {
     return value;
   };
   const live = (...parts: string[]) => get([...parts, "alive"]) === true;
-  const ids = (kind: string) => entries.filter(({ parts }) => parts[0] === kind && parts.at(-1) === "alive").map(({ parts }) => parts.slice(1, -1));
-  const sets = (kind: string, owner: string, name: string): SetEntry[] => ids("set")
-    .filter((parts) => parts[0] === kind && parts[1] === owner && parts[2] === name && live("set", ...parts))
+  const ids = (kind: string) => memberships.get(kind) ?? [];
+  const sets = (kind: string, owner: string, name: string): SetEntry[] => (groupedSets.get(pathKey(kind, owner, name)) ?? [])
+    .filter((parts) => live("set", ...parts))
     .sort((left, right) => Number(get(["set", ...left, "order"], 0)) - Number(get(["set", ...right, "order"], 0)) || left[3].localeCompare(right[3]))
     .map((parts) => ({ id: parts[3], load: text(["set", ...parts, "load"]), reps: text(["set", ...parts, "reps"]) }));
   const allWorkouts: CompletedWorkout[] = [];
   const completed: CompletedWorkout[] = [];
   for (const [id] of ids("workout")) {
     const prefix = ["workout", id];
-    const exercises = ids("exercise").filter(([owner, name]) => owner === id && live("exercise", owner, name))
+    const exercises = (groupedExercises.get(id) ?? []).filter(([owner, name]) => live("exercise", owner, name))
       .sort((left, right) => Number(get(["exercise", ...left, "order"], 0)) - Number(get(["exercise", ...right, "order"], 0)) || left[1].localeCompare(right[1]))
       .map(([owner, name]) => {
         const loadSuffix = text(["exercise", owner, name, "loadSuffix"], "");
@@ -392,11 +437,19 @@ function projected(fields: Flat): SyncSnapshot {
 }
 
 export function validateSyncDoc(doc: Automerge.Doc<SyncData>): void {
-  projected(readFields(doc));
+  cachedProjection(doc);
+}
+
+function cachedProjection(doc: Automerge.Doc<SyncData>): SyncSnapshot {
+  let snapshot = snapshotCache.get(doc);
+  if (!snapshot) { snapshot = projected(readFields(doc)); snapshotCache.set(doc, snapshot); }
+  return snapshot;
 }
 
 export function projectSyncDoc(doc: Automerge.Doc<SyncData>): SyncSnapshot {
-  return projected(readFields(doc));
+  // Callers own their projection; editing it must never mutate the cached
+  // validated view of the underlying immutable document.
+  return structuredClone(cachedProjection(doc));
 }
 
 function conflictLabel(parts: string[], fields: Flat) {
@@ -416,8 +469,7 @@ function conflictLabel(parts: string[], fields: Flat) {
 export function listSyncConflicts(doc: Automerge.Doc<SyncData>): SyncConflict[] {
   const fields = readFields(doc);
   const result: SyncConflict[] = [];
-  for (const key of Object.keys(doc.values)) {
-    const options = alternatives(doc, key);
+  for (const [key, options] of conflictCache.get(doc)!) {
     const unique = Array.from(new Map(options.map((option) => [JSON.stringify(option.value), option])).values());
     if (unique.length < 2) continue; // Identical independent imports are not conflicts.
     const parts = parsePath(key);

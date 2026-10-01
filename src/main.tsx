@@ -440,6 +440,8 @@ function initialSyncSnapshot(): SyncSnapshot {
 async function boot() {
   const manager = new PeerSyncManager(initialSyncSnapshot());
   await manager.initialize();
+  document.addEventListener("visibilitychange", () => { if (document.hidden) manager.flushPendingInputs(); });
+  window.addEventListener("pagehide", () => manager.flushPendingInputs());
   createRoot(document.getElementById("root")!).render(<StrictMode><App manager={manager} /></StrictMode>);
   if ("serviceWorker" in navigator && import.meta.env.PROD) {
     void navigator.serviceWorker.register("./sw.js").then((registration) => {

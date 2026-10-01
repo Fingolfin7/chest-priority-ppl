@@ -12,6 +12,26 @@ function choose(doc,k,value){const c=listSyncConflicts(doc).find(c=>c.key===k);a
 function active(){const s=emptySyncSnapshot();s.activeWorkout={id:'active-1',workout:'push',startedAt:'2026-09-01T05:00:00.000Z'};s.drafts={[exercise]:[{load:'55',reps:'8'}]};s.checkpoints={[exercise]:{workoutId:'active-1',fingerprint:JSON.stringify(s.drafts[exercise])}};s.bodyweight='65';s.sessionNote='Started on phone';return s;}
 function renamedSyncPaths(doc, current, previous){return A.change(doc,draft=>{for(const path of Object.keys(draft.values)){const parts=JSON.parse(path);const index=['exercise','draftExercise','checkpoint'].includes(parts[0])?2:['history','historyLink'].includes(parts[0])?1:parts[0]==='set'?3:-1;if(parts[index]!==current)continue;parts[index]=previous;draft.values[JSON.stringify(parts)]=new A.ImmutableString(String(draft.values[path]));delete draft.values[path];}});}
 function namedWorkout(id,date,name,reps){const saved=workout(id,date);saved.workout=name==='Leg press'?'legs':'pull';saved.exercises=[{name,priority:'must',sets:[{id:`${id}-set`,load:'50',reps}]}];saved.sync={status:'synced',autumnSessionId:Number(date.slice(-2))};return saved;}
+
+test('cached projections remain isolated from callers and local validation rejects invalid edits',()=>{
+  const doc=createSyncDoc(snapshot(workout()));
+  const projection=projectSyncDoc(doc);
+  projection.completed[0].note='Uncommitted mutation';
+  assert.equal(projectSyncDoc(doc).completed[0].note,'Original note');
+  validateSyncDoc(doc);
+  assert.throws(()=>edit(A.clone(doc),s=>{s.completed[0].exercises[0].sets[0].reps='-1';}),/completed set reps/);
+});
+
+test('draft-only updates preserve history and untouched conflicts through cached validation',()=>{
+  const base=createSyncDoc({...snapshot(workout()),...active(),completed:[workout()]});
+  const left=edit(A.clone(base),s=>{s.completed[0].note='Phone note';});
+  const right=edit(A.clone(base),s=>{s.completed[0].note='Laptop note';});
+  const merged=merge(left,right),before=projectSyncDoc(merged);
+  const updated=updateSyncDoc(merged,before,{...before,sessionNote:'New draft note'});
+  assert.deepEqual(projectSyncDoc(updated).completed,before.completed);
+  assert.deepEqual(projectSyncDoc(updated).history,before.history);
+  assert.deepEqual(listSyncConflicts(updated),listSyncConflicts(merged));
+});
 test('old combined-name sync records join newer pulldown and pull-up sessions without replacing either',()=>{
 const old=namedWorkout('old-pulldown','2026-09-01','Lat pulldown','8');
 const newer=namedWorkout('new-pulldown','2026-09-08','Lat pulldown','10');
