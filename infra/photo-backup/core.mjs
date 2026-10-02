@@ -90,6 +90,11 @@ export function createService({ store, objects, now = () => new Date().toISOStri
       if (!await store.activate(user, id, record.uploadId, updatedAt)) {
         const latest = await store.get(user, id);
         if (latest?.state === 'active' && latest.uploadId === record.uploadId) return { photo: publicPhoto(latest) };
+        // DynamoDB can cancel a competing transaction while its winner is still in flight.
+        // Both confirmations share this final key; removing it here could destroy the winner's image.
+        if (latest?.state === 'pending' && latest.uploadId === record.uploadId) {
+          throw new ApiError(409, 'PHOTO_CONFLICT', 'Photo confirmation is busy. Retry.');
+        }
         await objects.remove(record.objectKey);
         if (latest?.state === 'deleted') deleted();
         throw new ApiError(409, 'PHOTO_CONFLICT', 'Photo changed during upload. Retry.');

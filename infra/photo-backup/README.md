@@ -21,6 +21,8 @@ To change quotas explicitly, add `MaxPhotos=...` and `MaxBytes=...` to the scrip
 
 ## API contract
 
+The template applies a small CSS-only classic login customization to this app client, using the PWA's blue buttons and neutral colors. It depends on the hosted domain and uses Cognito's documented customizable classes/properties. It adds no IAM permissions, logo upload, new user account or runtime access: [classic branding documentation](https://docs.aws.amazon.com/cognito/latest/developerguide/hosted-ui-classic-branding.html), [CloudFormation attachment](https://docs.aws.amazon.com/AWSCloudFormation/latest/TemplateReference/aws-resource-cognito-userpooluicustomizationattachment.html).
+
 All routes require `Authorization: Bearer <Cognito access token>`. JSON errors are `{ "error": { "code": "...", "message": "..." } }`. Responses are `Cache-Control: no-store`. Photo IDs are 1–128 ASCII letters/numbers/underscore/hyphen; IDs are immutable.
 
 | Route | Body / response |

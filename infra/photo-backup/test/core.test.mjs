@@ -92,6 +92,15 @@ test('two concurrent confirmations never delete the other successful confirmatio
   assert.equal(results.length, 2); assert.equal((await f.service.list(ALICE)).photos.length, 1);
   assert.equal(f.removed.includes(`users/${ALICE}/photos/photo-1/${UPLOAD}`), false);
 });
+test('a transaction conflict while another confirm is still pending never removes their shared final object', async () => {
+  const f = fixture(); await f.service.prepare(ALICE, 'photo-1', input);
+  const activate = f.store.activate; f.store.activate = async () => false;
+  await assert.rejects(f.service.confirm(ALICE, 'photo-1', { uploadId: UPLOAD }), { code: 'PHOTO_CONFLICT' });
+  assert.equal(f.removed.includes(`users/${ALICE}/photos/photo-1/${UPLOAD}`), false);
+  f.store.activate = activate;
+  await f.service.confirm(ALICE, 'photo-1', { uploadId: UPLOAD });
+  assert.equal((await f.service.list(ALICE)).photos.length, 1);
+});
 test('failed byte validation cannot add an active manifest record', async () => {
   const f = fixture(); await f.service.prepare(ALICE, 'photo-1', input);
   f.objects.validateAndCopy = async () => { throw new ApiError(400, 'UPLOAD_INVALID', 'bad checksum'); };
