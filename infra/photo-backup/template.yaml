@@ -1,0 +1,323 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Rolling PPL isolated private photo backup. No Autumn resources referenced.
+Parameters:
+  AppOrigin:
+    Type: String
+    AllowedPattern: 'https://[^/]+|http://localhost:[0-9]+'
+    Description: Exact website origin, no trailing slash.
+  RedirectUri:
+    Type: String
+    AllowedPattern: 'https://.+|http://localhost:[0-9]+/.+'
+    Description: Exact Cognito callback and logout URL including app base path.
+  CodeBucket:
+    Type: String
+    Description: New Rolling PPL deployment artifact bucket, never an Autumn bucket.
+  CodeKey:
+    Type: String
+  MaxPhotos:
+    Type: Number
+    Default: 500
+    MinValue: 1
+    MaxValue: 1000
+  MaxBytes:
+    Type: Number
+    Default: 1073741824
+    MinValue: 8388608
+    MaxValue: 10737418240
+Resources:
+  PhotoBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        IgnorePublicAcls: true
+        BlockPublicPolicy: true
+        RestrictPublicBuckets: true
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      CorsConfiguration:
+        CorsRules:
+          - AllowedOrigins: [!Ref AppOrigin]
+            AllowedMethods: [GET, HEAD, POST]
+            AllowedHeaders: ['*']
+            ExposedHeaders: [ETag, x-amz-checksum-sha256]
+            MaxAge: 600
+      LifecycleConfiguration:
+        Rules:
+          - Id: ExpireStagingUploads
+            Status: Enabled
+            Prefix: users/
+            TagFilters:
+              - Key: staging
+                Value: 'true'
+            ExpirationInDays: 1
+          - Id: AbortIncompleteMultipartUploads
+            Status: Enabled
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 1
+      Tags:
+        - Key: Application
+          Value: RollingPPLPhotoBackup
+  PhotoBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref PhotoBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Deny
+            Principal: '*'
+            Action: s3:*
+            Resource: [!GetAtt PhotoBucket.Arn, !Sub '${PhotoBucket.Arn}/*']
+            Condition:
+              Bool:
+                aws:SecureTransport: false
+  Manifest:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: PK
+          AttributeType: S
+        - AttributeName: SK
+          AttributeType: S
+      KeySchema:
+        - AttributeName: PK
+          KeyType: HASH
+        - AttributeName: SK
+          KeyType: RANGE
+      SSESpecification:
+        SSEEnabled: true
+      Tags:
+        - Key: Application
+          Value: RollingPPLPhotoBackup
+  UserPool:
+    Type: AWS::Cognito::UserPool
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      UserPoolName: !Sub '${AWS::StackName}-users'
+      UserPoolTier: LITE
+      UsernameAttributes: [email]
+      AutoVerifiedAttributes: [email]
+      UsernameConfiguration:
+        CaseSensitive: false
+      AccountRecoverySetting:
+        RecoveryMechanisms:
+          - Name: verified_email
+            Priority: 1
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 12
+          RequireLowercase: true
+          RequireUppercase: true
+          RequireNumbers: true
+          RequireSymbols: true
+          TemporaryPasswordValidityDays: 3
+  UserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      UserPoolId: !Ref UserPool
+      ClientName: rolling-ppl-pwa
+      GenerateSecret: false
+      AllowedOAuthFlowsUserPoolClient: true
+      AllowedOAuthFlows: [code]
+      AllowedOAuthScopes: [openid, email, profile]
+      SupportedIdentityProviders: [COGNITO]
+      CallbackURLs: [!Ref RedirectUri]
+      LogoutURLs: [!Ref RedirectUri]
+      AccessTokenValidity: 60
+      IdTokenValidity: 60
+      RefreshTokenValidity: 30
+      TokenValidityUnits:
+        AccessToken: minutes
+        IdToken: minutes
+        RefreshToken: days
+      EnableTokenRevocation: true
+      PreventUserExistenceErrors: ENABLED
+      ExplicitAuthFlows: [ALLOW_REFRESH_TOKEN_AUTH]
+  UserPoolDomain:
+    Type: AWS::Cognito::UserPoolDomain
+    Properties:
+      Domain: !Sub '${AWS::StackName}-${AWS::AccountId}'
+      UserPoolId: !Ref UserPool
+      ManagedLoginVersion: 1
+  FunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: PhotoBackupOnly
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: [s3:GetObject, s3:PutObject, s3:DeleteObject, s3:PutObjectTagging]
+                Resource: !Sub '${PhotoBucket.Arn}/users/*'
+              - Effect: Allow
+                Action: [dynamodb:GetItem, dynamodb:Query, dynamodb:Scan, dynamodb:PutItem, dynamodb:UpdateItem, dynamodb:DeleteItem]
+                Resource: !GetAtt Manifest.Arn
+              - Effect: Allow
+                Action: [logs:CreateLogStream, logs:PutLogEvents]
+                Resource: !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/${AWS::StackName}-api:*'
+  Logs:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${AWS::StackName}-api'
+      RetentionInDays: 7
+  Function:
+    Type: AWS::Lambda::Function
+    DependsOn: Logs
+    Properties:
+      FunctionName: !Sub '${AWS::StackName}-api'
+      Role: !GetAtt FunctionRole.Arn
+      Runtime: nodejs22.x
+      Handler: index.handler
+      Architectures: [arm64]
+      MemorySize: 256
+      Timeout: 30
+      Code:
+        S3Bucket: !Ref CodeBucket
+        S3Key: !Ref CodeKey
+      Environment:
+        Variables:
+          PHOTO_BUCKET: !Ref PhotoBucket
+          MANIFEST_TABLE: !Ref Manifest
+          CLIENT_ID: !Ref UserPoolClient
+          MAX_ACCOUNT_PHOTOS: !Ref MaxPhotos
+          MAX_ACCOUNT_BYTES: !Ref MaxBytes
+  Api:
+    Type: AWS::ApiGatewayV2::Api
+    Properties:
+      Name: !Sub '${AWS::StackName}-api'
+      ProtocolType: HTTP
+      CorsConfiguration:
+        AllowOrigins: [!Ref AppOrigin]
+        AllowMethods: [GET, POST, DELETE, OPTIONS]
+        AllowHeaders: [authorization, content-type]
+        MaxAge: 600
+  Integration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref Api
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !GetAtt Function.Arn
+      PayloadFormatVersion: '2.0'
+  Authorizer:
+    Type: AWS::ApiGatewayV2::Authorizer
+    Properties:
+      ApiId: !Ref Api
+      Name: CognitoAccessToken
+      AuthorizerType: JWT
+      IdentitySource: ['$request.header.Authorization']
+      JwtConfiguration:
+        Audience: [!Ref UserPoolClient]
+        Issuer: !Sub 'https://cognito-idp.${AWS::Region}.amazonaws.com/${UserPool}'
+  ListRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: GET /photos
+      Target: !Sub 'integrations/${Integration}'
+      AuthorizationType: JWT
+      AuthorizerId: !Ref Authorizer
+      AuthorizationScopes: [openid]
+  UploadRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: POST /photos/{id}/upload
+      Target: !Sub 'integrations/${Integration}'
+      AuthorizationType: JWT
+      AuthorizerId: !Ref Authorizer
+      AuthorizationScopes: [openid]
+  ConfirmRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: POST /photos/{id}/confirm
+      Target: !Sub 'integrations/${Integration}'
+      AuthorizationType: JWT
+      AuthorizerId: !Ref Authorizer
+      AuthorizationScopes: [openid]
+  DownloadRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: GET /photos/{id}/download
+      Target: !Sub 'integrations/${Integration}'
+      AuthorizationType: JWT
+      AuthorizerId: !Ref Authorizer
+      AuthorizationScopes: [openid]
+  DeleteRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: DELETE /photos/{id}
+      Target: !Sub 'integrations/${Integration}'
+      AuthorizationType: JWT
+      AuthorizerId: !Ref Authorizer
+      AuthorizationScopes: [openid]
+  Stage:
+    Type: AWS::ApiGatewayV2::Stage
+    Properties:
+      ApiId: !Ref Api
+      StageName: '$default'
+      AutoDeploy: true
+      DefaultRouteSettings:
+        ThrottlingBurstLimit: 20
+        ThrottlingRateLimit: 10
+  ApiPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref Function
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*'
+  CleanupSchedule:
+    Type: AWS::Events::Rule
+    Properties:
+      ScheduleExpression: rate(1 day)
+      State: ENABLED
+      Targets:
+        - Id: ExpiredPhotoReservations
+          Arn: !GetAtt Function.Arn
+  CleanupPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref Function
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt CleanupSchedule.Arn
+Outputs:
+  region:
+    Value: !Ref AWS::Region
+  userPoolId:
+    Value: !Ref UserPool
+  clientId:
+    Value: !Ref UserPoolClient
+  authDomain:
+    Value: !Sub 'https://${UserPoolDomain}.auth.${AWS::Region}.amazoncognito.com'
+  apiBaseUrl:
+    Value: !GetAtt Api.ApiEndpoint
+  redirectUri:
+    Value: !Ref RedirectUri
+  PhotoBucketName:
+    Value: !Ref PhotoBucket
+  ManifestTableName:
+    Value: !Ref Manifest
