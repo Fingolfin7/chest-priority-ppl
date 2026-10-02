@@ -41,6 +41,14 @@ Cloud deletion first writes a permanent tombstone and releases quota in one Dyna
 
 ## Verification
 
+The core authorization/concurrency suite has no third-party dependencies and can run from repository root in CI:
+
+```bash
+node --test infra/photo-backup/test/*.test.mjs
+```
+
+Bundling the actual AWS handler uses the backend's isolated dependencies:
+
 ```bash
 cd infra/photo-backup
 npm ci
@@ -49,6 +57,8 @@ npm run build
 ```
 
 Tests cover unauthorized token/client contexts, identity/path injection, metadata limits, per-user isolation, idempotent uploads, invalid image signatures, deletion tombstones, failed S3 cleanup retries, confirm/delete races and concurrent confirms. These local tests do not claim AWS integration validation. After deployment verify unauthenticated API requests return 401, then use two separate Cognito accounts to confirm upload/download/list isolation, invalid checksums fail at S3, confirmation preserves permanent objects without the staging tag, explicit deletion blocks reupload, and pending cleanup releases counters without affecting active photos. Use only disposable test photos/IDs.
+
+An IAM-authorized AWS CloudShell operator can run `node infra/photo-backup/test-live.mjs` after deployment. This performs real signed S3 POST/download requests, verifies checksum/MIME/size rejection and permanent lifecycle tags, exercises isolated synthetic subjects through direct Lambda invocation, and checks the public HTTP API rejects a missing JWT. It retains one non-personal 68-byte PNG fixture and performs no AWS deletion or Cognito account creation. Direct Lambda calls synthesize the verified authorizer context, so this does **not** prove hosted login or acceptance of a real Cognito token. The script prints no credentials or presigned URLs.
 
 ## Billing and recovery
 
