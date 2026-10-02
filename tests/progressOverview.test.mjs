@@ -1,6 +1,18 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { suggestedWeightMilestones, phaseProgress } from '../src/progressOverviewModel.ts';
+import { workoutBelongsToPhase } from '../src/planModel.ts';
+
+test('original plan includes untagged PPL history without claiming other programmes or rewriting records', () => {
+  const original={id:'original-ppl-v1',startedAt:'2026-10-02T00:00:00Z'};
+  const sessions=['push','pull','legs','upper'].map((workout,i)=>({id:String(i),workout,endedAt:'2026-09-01T12:00:00Z',exercises:[]}));
+  sessions.push({...sessions[0],id:'tagged',training:{phaseId:'new-phase'}});
+  const before=structuredClone(sessions);
+  assert.equal(sessions.filter(session=>workoutBelongsToPhase(session,original)).length,3);
+  assert.equal(phaseProgress(original,sessions,[],[]).workouts,3);
+  assert.equal(phaseProgress({...original,id:'new-phase'},sessions,[],[]).workouts,1);
+  assert.deepEqual(sessions,before);
+});
 test('suggested milestones stay between the observed weight and the chosen goal', () => {
   assert.deepEqual(suggestedWeightMilestones(64.5,70),[65,66,67,68,69]);
   assert.deepEqual(suggestedWeightMilestones(68,70),[69]);

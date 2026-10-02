@@ -1,5 +1,6 @@
 import type { CompletedWorkout } from './sessionModel';
 import type { TrainingPhase } from './planModel';
+import { workoutBelongsToPhase } from './planModel.ts';
 import { localDay, MEASUREMENT_KEYS, type BodyMeasurement, type WeightReading } from './bodyProgressModel.ts';
 
 export function suggestedWeightMilestones(latest: number | undefined, target: number): number[] {
@@ -14,7 +15,7 @@ export function phaseProgress(phase: TrainingPhase, sessions: CompletedWorkout[]
   const start = localDay(new Date(phase.startedAt));
   const end = endedAt ? localDay(new Date(endedAt)) : undefined;
   const during = (date: string) => date >= start && (!end || date < end);
-  const training = sessions.filter((session) => session.training?.phaseId === phase.id).sort((a, b) => a.endedAt.localeCompare(b.endedAt));
+  const training = sessions.filter((session) => workoutBelongsToPhase(session, phase)).sort((a, b) => a.endedAt.localeCompare(b.endedAt));
   const weights = readings.filter((reading) => during(reading.date)).sort((a, b) => a.date.localeCompare(b.date));
   const tape = MEASUREMENT_KEYS.flatMap((key) => {
     const records = measurements.filter((record) => during(record.date) && record[key] !== undefined).sort((a, b) => a.date.localeCompare(b.date) || a.updatedAt.localeCompare(b.updatedAt));

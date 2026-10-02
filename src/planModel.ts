@@ -16,6 +16,12 @@ export const PLAN_STORAGE_KEY = "rolling-ppl-plan-v1";
 export function phaseSequence(phase: TrainingPhase): WorkoutKey[] { return phase.sequence ?? WORKOUT_SEQUENCE; }
 export function phaseProgramName(phase: TrainingPhase) { return phase.programName ?? "Chest-priority PPL"; }
 export function phaseProgramId(phase: TrainingPhase) { return phase.programId ?? "original-ppl-program"; }
+// Before phases existed, untagged PPL sessions belonged to the original plan.
+// Derive this association without inventing historical prescriptions or editing logs.
+export function workoutBelongsToPhase(session: { workout: WorkoutKey; training?: { phaseId: string } }, phase: TrainingPhase): boolean {
+  if (session.training) return session.training.phaseId === phase.id;
+  return phase.id === "original-ppl-v1" && WORKOUT_SEQUENCE.includes(session.workout);
+}
 function validSequence(value: unknown): value is WorkoutKey[] { return Array.isArray(value) && value.length >= 1 && value.length <= 12 && value.every(isWorkoutKey) && new Set(value).size === value.length; }
 
 function record(value: unknown): value is Record<string, unknown> { return Boolean(value && typeof value === "object" && !Array.isArray(value)); }

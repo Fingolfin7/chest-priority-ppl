@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from "react";
-import { currentPhase, newPhase, phaseSequence, phaseProgramId, phaseProgramName, validatePlanExercises, type PlanExercise, type PlanState, type PlanWorkouts, type TrainingPhase } from "./planModel";
+import { currentPhase, workoutBelongsToPhase, newPhase, phaseSequence, phaseProgramId, phaseProgramName, validatePlanExercises, type PlanExercise, type PlanState, type PlanWorkouts, type TrainingPhase } from "./planModel";
 import { defaultWorkouts, programPreset, type ProgramPreset } from "./defaultPlan";
 import { workoutLabel, type CompletedWorkout, type WorkoutKey } from "./sessionModel";
 import "./plans.css";
@@ -87,7 +87,7 @@ export function PlanPanel({ state, sessions, activePhase, onSave }: { state: Pla
       {choosing && <div className="programme-presets"><h3>Choose a starting point</h3><p>You can change the exercises, names and order before saving.</p><div>{([{ id: "ppl", name: "Push / Pull / Legs", detail: "The familiar chest-priority plan" }, { id: "upper-lower", name: "Upper / Lower", detail: "Two workouts that cover the whole body" }, { id: "full-body", name: "Full body", detail: "One workout you repeat" }, { id: "custom", name: "Build your own", detail: "Start with a blank workout" }] as const).map((preset) => <button type="button" key={preset.id} onClick={() => startProgram(preset.id)}><strong>{preset.name}</strong><span>{preset.detail}</span></button>)}</div></div>}
       <p role="status">{message}</p>
       <div className="phase-history"><h3>Phase history</h3>{[...state.phases].sort((a, b) => b.startedAt.localeCompare(a.startedAt)).map((item) => {
-        const count = sessions.filter((session) => session.training?.phaseId === item.id).length;
+        const count = sessions.filter((session) => workoutBelongsToPhase(session, item)).length;
         return <details key={item.id}><summary><span><strong>{item.name}</strong><small>{phaseProgramName(item)} · {new Date(item.startedAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })} · {count} recorded workout{count === 1 ? "" : "s"}</small></span>{item.id === state.currentId && <b>Current</b>}</summary>{item.purpose && <p>{item.purpose}</p>}<div className="phase-workouts">{phaseSequence(item).map((key) => <div key={key}><h4>{workoutLabel(key, item)}</h4><ol>{item.workouts[key].exercises.map((exercise) => <li key={exercise.name}><strong>{exercise.name}</strong><span>{exercise.sets} × {exercise.reps} · {exercise.priority === "must" ? "Must do" : "If time"}</span></li>)}</ol></div>)}</div><button className="secondary-action" type="button" onClick={() => editPhase(item)}>Use as a starting point</button></details>;
       })}</div>
     </>}
