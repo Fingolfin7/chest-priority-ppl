@@ -1,4 +1,5 @@
 import type { HistoryMap, SetEntry } from "./historyMigration";
+import type { WorkoutTraining } from "./planModel.ts";
 
 export type WorkoutKey = "push" | "pull" | "legs";
 export type ExercisePriority = "must" | "optional";
@@ -7,6 +8,7 @@ export type ActiveWorkout = {
   id: string;
   workout: WorkoutKey;
   startedAt: string;
+  training?: WorkoutTraining;
 };
 
 export type CompletedExercise = {
@@ -34,6 +36,7 @@ export type CompletedWorkout = {
   note: string;
   exercises: CompletedExercise[];
   sync: WorkoutSync;
+  training?: WorkoutTraining;
 };
 
 export type ExerciseDefinition = {
@@ -112,6 +115,7 @@ export function completeWorkout({
       note: note.trim(),
       exercises,
       sync: { status: "unsynced" },
+      ...(active.training ? { training: structuredClone(active.training) } : {}),
     },
   };
 }

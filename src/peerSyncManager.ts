@@ -78,6 +78,7 @@ export class PeerSyncManager {
     this.durableSnapshot = this.snapshot;
   }
   getSnapshot = () => this.snapshot;
+  async saveNow() { await this.durable(); }
   getView = () => this.view;
   subscribe = (listener: () => void) => { this.dataListeners.add(listener); return () => { this.dataListeners.delete(listener); }; };
   subscribeView = (listener: () => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; };

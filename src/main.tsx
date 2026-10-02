@@ -14,21 +14,24 @@ import { parseBackupText } from "./transfer";
 import { pruneCompletedDrafts, type DraftMap } from "./drafts";
 import { canonicalizeHistory, type HistoryMap, type SavedSession, type SetEntry } from "./historyMigration";
 import { nextStep, setTarget } from "./progression";
-import { availableChartExercises, bodyweightSeries, exerciseMetricSeries } from "./progressModel";
+import { availableChartExercises, exerciseMetricSeries } from "./progressModel";
 import {
   WORKOUT_SEQUENCE, addWorkoutToHistory, completeWorkout, createActiveWorkout, elapsedLabel, liftMilestones,
   migrateLegacyHistory, nextWorkout as followingWorkout, selectedExerciseSets, sessionsInLastDays, workoutDurationMinutes,
   workoutSummary, type ActiveWorkout, type CompletedWorkout, type WorkoutKey,
 } from "./sessionModel";
+import { defaultWorkouts, defaultPlanState } from "./defaultPlan";
+import { FullBackup } from "./FullBackup";
+import { BodyProgress } from "./BodyProgress";
+import { PhotoProgress } from "./PhotoProgress";
+import { PlanPanel, SessionPlanEditor } from "./PlanPanel";
+import { currentPhase, trainingForWorkout, normalizePlanState, PLAN_STORAGE_KEY, type PlanExercise, type PlanWorkouts } from "./planModel";
 import "./styles.css";
 
 type Theme = "light" | "dark";
-type AppView = "train" | "sessions" | "progress";
+type AppView = "train" | "sessions" | "progress" | "plan";
 type Demo = { label: string; slug: string };
-type Exercise = {
-  name: string; sets: string; reps: string; rest: string; warmup: string; cue: string;
-  priority: "must" | "optional"; loadSuffix?: string; demos: Demo[]; alternatives?: string[];
-};
+type Exercise = PlanExercise;
 type LightboxImage = { src: string; alt: string };
 type InstallPromptEvent = Event & { prompt: () => Promise<void>; userChoice: Promise<{ outcome: "accepted" | "dismissed" }> };
 
@@ -71,31 +74,7 @@ function isWorkoutKey(value: unknown): value is WorkoutKey { return value === "p
 function setRange(value: string) { const values = value.match(/\d+/g)?.map(Number) ?? [1]; return { min: values[0], max: values.at(-1) ?? values[0] }; }
 function formatSession(session: SavedSession) { return session.sets.map((entry) => `${entry.load.trim() || "BW"} × ${entry.reps}`).join(" · "); }
 
-const workouts: Record<WorkoutKey, { summary: string; exercises: Exercise[] }> = {
-  push: { summary: "6 exercises · chest priority", exercises: [
-    { name: "Barbell bench press", sets: "3–4", reps: "5–8", rest: "2–4 min", warmup: "3–4 ramp sets", cue: "Set your upper back, plant your feet, and touch the same lower-chest point each rep. The fourth work set is optional.", priority: "must", demos: [{ label: "Bench press", slug: "bench" }] },
-    { name: "Incline dumbbell bench press", sets: "3", reps: "6–10", rest: "2–3 min", warmup: "1–2 ramp sets × 6–8", cue: "Use a modest incline. Lower with control and press up and slightly inward.", priority: "must", loadSuffix: " each", demos: [{ label: "Incline press", slug: "incline-press" }] },
-    { name: "Lateral raise", sets: "2–3", reps: "12–20", rest: "60–90 sec", warmup: "1 light set × 15–20", cue: "Lead with your elbows, stop near shoulder height, and keep momentum out of it.", priority: "must", loadSuffix: " each", demos: [{ label: "Lateral raise", slug: "lateral-raise" }] },
-    { name: "Cable triceps pushdown", sets: "3", reps: "8–12", rest: "60–90 sec", warmup: "1 light set × 12–15", cue: "Pin your upper arms, extend fully, then control the return.", priority: "must", demos: [{ label: "Pushdown", slug: "pushdown" }] },
-    { name: "Overhead dumbbell triceps extension", sets: "2–3", reps: "10–15", rest: "60–90 sec", warmup: "1 light set × 12–15", cue: "Hold one dumbbell with both hands. Keep your upper arms steady and use a comfortable depth. The third work set is optional.", priority: "optional", demos: [{ label: "Overhead dumbbell extension", slug: "overhead-db-extension" }] },
-    { name: "Chest press machine", sets: "2", reps: "8–12", rest: "90–120 sec", warmup: "1 light ramp set × 8–10", cue: "Set the seat so the handles meet mid-chest. Keep your upper back planted and control the return.", priority: "optional", demos: [{ label: "Chest press machine", slug: "chest-press-machine" }] },
-  ] },
-  pull: { summary: "5 exercises · back + biceps", exercises: [
-    { name: "Bent-over barbell row", sets: "3", reps: "6–10", rest: "2–3 min", warmup: "2–3 ramp sets × 5–8", cue: "Brace before you pull, keep your torso angle steady, and drive your elbows toward your hips.", priority: "must", demos: [{ label: "Barbell row", slug: "barbell-row" }] },
-    { name: "Vertical pull", alternatives: ["Lat pulldown", "Pull-ups"], sets: "3", reps: "6–12", rest: "2–3 min", warmup: "1 light or assisted set × 8–10", cue: "Start by bringing your shoulders down, then pull your elbows toward your ribs without swinging.", priority: "must", demos: [{ label: "Lat pulldown", slug: "lat-pulldown" }, { label: "Pull-ups", slug: "pullups" }] },
-    { name: "Rear-delt fly", sets: "2–3", reps: "12–20", rest: "60–90 sec", warmup: "1 light set × 15–20", cue: "Use your rear delts and upper back. Keep your ribs down and avoid shrugging.", priority: "must", demos: [{ label: "Rear-delt fly", slug: "rear-delt-fly" }] },
-    { name: "Barbell curl", sets: "3", reps: "8–12", rest: "60–90 sec", warmup: "1 light set × 10–12", cue: "Keep your upper arms quiet, curl without leaning back, and own the lowering phase.", priority: "must", demos: [{ label: "Barbell curl", slug: "barbell-curl" }] },
-    { name: "Dumbbell hammer curl", sets: "2–3", reps: "8–12", rest: "60–90 sec", warmup: "1 light set × 10–12", cue: "Keep a neutral grip, leave your elbows by your sides, and lower without swinging. The third work set is optional.", priority: "optional", loadSuffix: " each", demos: [{ label: "Hammer curl", slug: "hammer-curl" }] },
-  ] },
-  legs: { summary: "6 exercises · squat + hinge", exercises: [
-    { name: "Back squat", sets: "3", reps: "5–8", rest: "3–5 min", warmup: "3–4 ramp sets", cue: "Brace before descending, keep pressure through your whole foot, and use safeties just below depth.", priority: "must", demos: [{ label: "Back squat", slug: "back-squat" }] },
-    { name: "Conventional deadlift", sets: "2", reps: "4–6", rest: "3–5 min", warmup: "2–3 ramp sets × 3–5", cue: "Wedge into the bar, push the floor away, and finish tall without leaning back.", priority: "must", demos: [{ label: "Deadlift", slug: "deadlift" }] },
-    { name: "Leg curl", sets: "3", reps: "10–15", rest: "60–90 sec", warmup: "1 light set × 12–15", cue: "Keep your hips anchored, curl through your hamstrings, and lower without letting the stack crash.", priority: "must", demos: [{ label: "Leg curl", slug: "leg-curl" }] },
-    { name: "Quad accessory", alternatives: ["Leg press", "Bulgarian split squat"], sets: "2–3", reps: "8–12", rest: "2–3 min", warmup: "1–2 light sets × 8", cue: "Choose the option you can control through a comfortable range. Keep your knee tracking over your foot.", priority: "optional", demos: [{ label: "Leg press", slug: "leg-press" }, { label: "Bulgarian split squat", slug: "split-squat" }] },
-    { name: "Calf raise", sets: "2–3", reps: "10–15", rest: "60–90 sec", warmup: "1 easy set × 12–15", cue: "Use a full comfortable stretch, pause briefly at the top, and avoid bouncing. The third work set is optional.", priority: "optional", demos: [{ label: "Calf raise", slug: "calf-raise" }] },
-    { name: "Ab crunch machine", sets: "2–3", reps: "10–15", rest: "60–90 sec", warmup: "1 light set × 12–15", cue: "Bring your ribs toward your pelvis, pause in the crunch, and control the return. The third work set is optional.", priority: "optional", demos: [{ label: "Ab crunch machine", slug: "ab-crunch-machine" }] },
-  ] },
-};
+const workouts = defaultWorkouts;
 
 function exerciseNames(exercise: Exercise) { return exercise.alternatives ?? [exercise.name]; }
 
@@ -104,17 +83,17 @@ function selectedExerciseName(exercise: Exercise, choices: Record<string, string
   return names.includes(choices[exercise.name]) ? choices[exercise.name] : names[0];
 }
 
-function resolvedExercises(workout: WorkoutKey, choices: Record<string, string>) {
-  return workouts[workout].exercises.map((exercise) => ({ ...exercise, name: selectedExerciseName(exercise, choices) }));
+function resolvedExercises(exercises: Exercise[], choices: Record<string, string>) {
+  return exercises.map((exercise) => ({ ...exercise, name: selectedExerciseName(exercise, choices) }));
 }
 
-function workoutExerciseNames(workout: WorkoutKey) {
-  return new Set(workouts[workout].exercises.flatMap(exerciseNames));
+function workoutExerciseNames(exercises: Exercise[]) {
+  return new Set(exercises.flatMap(exerciseNames));
 }
 
 const exerciseWorkouts = Object.fromEntries(WORKOUT_SEQUENCE.flatMap((workout) => workouts[workout].exercises.flatMap((exercise) => exerciseNames(exercise).map((name) => [name, workout])))) as Record<string, WorkoutKey>;
 
-const sessionDefinitions = Object.fromEntries(WORKOUT_SEQUENCE.map((key) => [key, workouts[key].exercises.flatMap((exercise) => exerciseNames(exercise).map((name) => ({ name, priority: exercise.priority, ...(exercise.loadSuffix ? { loadSuffix: exercise.loadSuffix } : {}) }))) ]));
+
 
 function DemoStrip({ demo, exercise, onOpen }: { demo: Demo; exercise: string; onOpen: (image: LightboxImage) => void }) {
   const poses = [{ src: `./exercises/${demo.slug}-0.jpg`, alt: `${demo.label}: first position` }, { src: `./exercises/${demo.slug}-1.jpg`, alt: `${demo.label}: second position` }];
@@ -174,9 +153,9 @@ function ExerciseRow({ exercise, index, choice, onOpen, history, draft, enabled,
   </article>;
 }
 
-function Workout({ workout, onOpen, history, drafts, choices, enabled, activeWorkoutId, checkpoints, onChoiceChange, onDraftChange, onSave }: { workout: WorkoutKey; onOpen: (image: LightboxImage) => void; history: HistoryMap; drafts: DraftMap; choices: Record<string, string>; enabled: boolean; activeWorkoutId?: string; checkpoints: CheckpointMap; onChoiceChange: (slot: string, exercise: string) => void; onDraftChange: (name: string, entries: SetEntry[]) => void; onSave: (name: string, entries: SetEntry[]) => SaveResult }) {
-  const data = workouts[workout]; const mustDoCount = data.exercises.filter((exercise) => exercise.priority === "must").length; const optionalCount = data.exercises.length - mustDoCount;
-  return <section className={`workout ${workout}`} aria-labelledby={`${workout}-title`}><header className="workout-header"><div><h2 id={`${workout}-title`}>{workout}</h2><p>{data.summary}</p></div><span>{mustDoCount} must · {optionalCount} if time</span></header><p className="short-session"><strong>Minimum version:</strong> complete every Must do card when you can. A shortened session still advances the sequence.</p><div className="exercise-list">{data.exercises.map((slot, index) => { const name = selectedExerciseName(slot, choices); const exercise = { ...slot, name }; const checked = Boolean(activeWorkoutId && checkpoints[name]?.workoutId === activeWorkoutId && checkpoints[name]?.fingerprint === exerciseFingerprint(drafts[name] ?? [])); const choice = slot.alternatives ? { slot: slot.name, options: slot.alternatives, selected: name } : undefined; return <Fragment key={slot.name}>{index === mustDoCount && <div className="optional-divider"><span>If time</span><p>Useful additions, already ranked. Stop whenever you need to.</p></div>}<ExerciseRow exercise={exercise} index={index} choice={choice} onOpen={onOpen} history={history[name] ?? []} draft={drafts[name] ?? []} enabled={enabled} checked={checked} onChoiceChange={onChoiceChange} onDraftChange={(entries) => onDraftChange(name, entries)} onSave={(entries) => onSave(name, entries)} /></Fragment>; })}</div></section>;
+function Workout({ workout, data, onOpen, history, drafts, choices, enabled, activeWorkoutId, checkpoints, onChoiceChange, onDraftChange, onSave }: { workout: WorkoutKey; data: PlanWorkouts[WorkoutKey]; onOpen: (image: LightboxImage) => void; history: HistoryMap; drafts: DraftMap; choices: Record<string, string>; enabled: boolean; activeWorkoutId?: string; checkpoints: CheckpointMap; onChoiceChange: (slot: string, exercise: string) => void; onDraftChange: (name: string, entries: SetEntry[]) => void; onSave: (name: string, entries: SetEntry[]) => SaveResult }) {
+  const mustDoCount = data.exercises.filter((exercise) => exercise.priority === "must").length; const optionalCount = data.exercises.length - mustDoCount;
+  return <section className={`workout ${workout}`} aria-labelledby={`${workout}-title`}><header className="workout-header"><div><h2 id={`${workout}-title`}>{workout}</h2><p>{data.summary}</p></div><span>{mustDoCount} must · {optionalCount} if time</span></header><p className="short-session"><strong>Minimum version:</strong> complete every Must do card when you can. A shortened session still advances the sequence.</p><div className="exercise-list">{data.exercises.map((slot, index) => { const name = selectedExerciseName(slot, choices); const exercise = { ...slot, name }; const checked = Boolean(activeWorkoutId && checkpoints[name]?.workoutId === activeWorkoutId && checkpoints[name]?.fingerprint === exerciseFingerprint(drafts[name] ?? [])); const choice = slot.alternatives ? { slot: slot.name, options: slot.alternatives, selected: name } : undefined; return <Fragment key={slot.name}>{slot.priority === "optional" && data.exercises[index - 1]?.priority !== "optional" && <div className="optional-divider"><span>If time</span><p>Useful additions, already ranked. Stop whenever you need to.</p></div>}<ExerciseRow exercise={exercise} index={index} choice={choice} onOpen={onOpen} history={history[name] ?? []} draft={drafts[name] ?? []} enabled={enabled} checked={checked} onChoiceChange={onChoiceChange} onDraftChange={(entries) => onDraftChange(name, entries)} onSave={(entries) => onSave(name, entries)} /></Fragment>; })}</div></section>;
 }
 
 function ExercisePicker({ available, selected, onChange }: { available: string[]; selected: string[]; onChange: (selected: string[]) => void }) {
@@ -185,11 +164,6 @@ function ExercisePicker({ available, selected, onChange }: { available: string[]
   return <details className="exercise-picker"><summary>{selected.length ? `${selected.length} exercise${selected.length === 1 ? "" : "s"}` : "Choose exercises"}</summary><div><header><span>Lines to show · up to 6</span><div className="picker-actions"><button type="button" onClick={() => onChange([])}>Clear</button><button className="picker-done" type="button" onClick={close}>Done</button></div></header>{available.map((exercise) => { const checked = selected.includes(exercise); return <label key={exercise}><input type="checkbox" checked={checked} disabled={!checked && selected.length >= 6} onChange={() => toggle(exercise)} /><span>{exercise}</span></label>; })}</div></details>;
 }
 
-function BodyweightChart({ sessions }: { sessions: CompletedWorkout[] }) {
-  const readings = useMemo(() => bodyweightSeries(sessions), [sessions]);
-  const series = readings.length ? [{ exercise: "Bodyweight", points: readings }] : [];
-  return <article className="chart-card bodyweight-chart-card"><div className="chart-card-heading"><div><h3>Bodyweight</h3><p>Your last 24 recorded weigh-ins.</p></div><span className="chart-context">Across sessions</span></div><TrendChart series={series} unit="kg" emptyTitle="No bodyweight readings yet." emptyHint="Add bodyweight when finishing or editing a session." label={`Bodyweight chart with ${readings.length} readings`} /></article>;
-}
 
 function ExerciseChart({ title, description, metric, history, storageKey }: { title: string; description: string; metric: "volume" | "load"; history: HistoryMap; storageKey: string }) {
   const available = useMemo(() => availableChartExercises(history), [history]);
@@ -212,11 +186,12 @@ function bestRecordedSet(sessions: SavedSession[]) {
 }
 
 function Progress({ sessions, history }: { sessions: CompletedWorkout[]; history: HistoryMap }) {
+  const [tab, setTab] = useState<"body" | "lifts" | "photos">("body");
   const recent = sessionsInLastDays(sessions, 28); const timed = recent.filter((session) => session.sync.status !== "legacy").map(workoutDurationMinutes).filter((duration) => duration > 0);
   const average = timed.length ? Math.round(timed.reduce((sum, duration) => sum + duration, 0) / timed.length) : 0;
   const liftHistory = Object.entries(history).filter(([, saved]) => saved.length > 0);
   const milestones = liftMilestones(history).slice(0, 6);
-  return <section className="progress" aria-labelledby="progress-title"><div className="section-heading progress-heading"><div><h2 id="progress-title">Progress</h2></div><p>See how your training is changing.</p></div><BodyweightChart sessions={sessions} /><div className="metric-chart-grid"><ExerciseChart title="Training volume" description="Recorded load × reps in each session. Last 16 sessions per lift." metric="volume" history={history} storageKey={VOLUME_EXERCISES_KEY} /><ExerciseChart title="Working weight" description="Your heaviest completed set. Last 16 sessions per lift." metric="load" history={history} storageKey={LOAD_EXERCISES_KEY} /></div><div className="progress-support"><article className="frequency-card"><span>Last 28 days</span><strong>{recent.length}</strong><p>completed workout{recent.length === 1 ? "" : "s"}{average ? ` · ${average} min average` : ""}</p><div>{WORKOUT_SEQUENCE.map((workout) => <span className={workout} key={workout}>{workout} <b>{recent.filter((session) => session.workout === workout).length}</b></span>)}</div></article>{milestones.length > 0 && <div className="milestones"><h3>Recent milestones</h3><div>{milestones.map((milestone) => <article key={`${milestone.exercise}-${milestone.date}-${milestone.kind}`}><span>{milestone.kind === "load" ? "New load" : "Rep record"}</span><strong>{milestone.exercise}</strong><p>{milestone.load || "BW"} × {milestone.reps}</p><time>{new Date(milestone.date).toLocaleDateString(undefined, { month: "short", day: "numeric" })}</time></article>)}</div></div>}</div><div className="lift-progress"><h3>Recent lifts</h3>{liftHistory.length ? <div className="lift-grid">{liftHistory.map(([name, saved]) => { const record = bestRecordedSet(saved); return <details key={name}><summary><span>{name}</span><strong>{record ? `${record.load || "BW"} × ${record.reps}` : "—"}<small>recorded best</small></strong></summary><ol>{saved.slice(0, 4).map((session) => <li key={session.id}><time>{new Date(session.savedAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}</time><span>{formatSession(session)}</span></li>)}</ol></details>; })}</div> : <div className="empty-progress"><strong>No completed lifts yet.</strong><span>Finish a workout to begin the record.</span></div>}</div></section>;
+  return <section className="progress" aria-labelledby="progress-title"><div className="section-heading progress-heading"><div><h2 id="progress-title">Progress</h2></div><p>See how your training is changing.</p></div><div className="workout-tabs progress-tabs" role="tablist" aria-label="Progress to view">{(["body", "lifts", "photos"] as const).map((item) => <button key={item} type="button" role="tab" aria-selected={tab === item} className={tab === item ? "active push" : ""} onClick={() => setTab(item)}>{item === "body" ? "Body" : item === "lifts" ? "Lifts" : "Photos"}</button>)}</div>{tab === "body" ? <BodyProgress sessions={sessions} /> : tab === "photos" ? <PhotoProgress /> : <><div className="metric-chart-grid"><ExerciseChart title="Training volume" description="Recorded load × reps in each session. Last 16 sessions per lift." metric="volume" history={history} storageKey={VOLUME_EXERCISES_KEY} /><ExerciseChart title="Working weight" description="Your heaviest completed set. Last 16 sessions per lift." metric="load" history={history} storageKey={LOAD_EXERCISES_KEY} /></div><div className="progress-support"><article className="frequency-card"><span>Last 28 days</span><strong>{recent.length}</strong><p>completed workout{recent.length === 1 ? "" : "s"}{average ? ` · ${average} min average` : ""}</p><div>{WORKOUT_SEQUENCE.map((workout) => <span className={workout} key={workout}>{workout} <b>{recent.filter((session) => session.workout === workout).length}</b></span>)}</div></article>{milestones.length > 0 && <div className="milestones"><h3>Recent milestones</h3><div>{milestones.map((milestone) => <article key={`${milestone.exercise}-${milestone.date}-${milestone.kind}`}><span>{milestone.kind === "load" ? "New load" : "Rep record"}</span><strong>{milestone.exercise}</strong><p>{milestone.load || "BW"} × {milestone.reps}</p><time>{new Date(milestone.date).toLocaleDateString(undefined, { month: "short", day: "numeric" })}</time></article>)}</div></div>}</div><div className="lift-progress"><h3>Recent lifts</h3>{liftHistory.length ? <div className="lift-grid">{liftHistory.map(([name, saved]) => { const record = bestRecordedSet(saved); return <details key={name}><summary><span>{name}</span><strong>{record ? `${record.load || "BW"} × ${record.reps}` : "—"}<small>recorded best</small></strong></summary><ol>{saved.slice(0, 4).map((session) => <li key={session.id}><time>{new Date(session.savedAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}</time><span>{formatSession(session)}</span></li>)}</ol></details>; })}</div> : <div className="empty-progress"><strong>No completed lifts yet.</strong><span>Finish a workout to begin the record.</span></div>}</div></>}</section>;
 }
 
 function AutumnConnection({ settings, projects, status, busy, pending, onSettings, onSignIn, onTest, onLoad, onSync }: {
@@ -255,7 +230,19 @@ function bindField<K extends keyof SyncSnapshot>(manager: PeerSyncManager, key: 
 }
 
 function App({ manager }: { manager: PeerSyncManager }) {
-  const { history, drafts, checkpoints, exerciseChoices, completed, activeWorkout, next, bodyweight, sessionNote } = useSyncExternalStore(manager.subscribe, manager.getSnapshot);
+  const { history, drafts, checkpoints, exerciseChoices, completed, activeWorkout, next, bodyweight, sessionNote, planState: savedPlanState } = useSyncExternalStore(manager.subscribe, manager.getSnapshot);
+  const planState = useMemo(() => savedPlanState ?? defaultPlanState(), [savedPlanState]);
+  const phase = currentPhase(planState);
+  const viewWorkouts: PlanWorkouts = { ...phase.workouts, ...(activeWorkout ? { [activeWorkout.workout]: { summary: activeWorkout.training?.phaseName ?? "Original workout", exercises: activeWorkout.training?.exercises ?? defaultWorkouts[activeWorkout.workout].exercises } } : {}) };
+  const activeExercises = useMemo(() => activeWorkout ? (activeWorkout.training?.exercises ?? defaultWorkouts[activeWorkout.workout].exercises) : [], [activeWorkout]);
+  const sessionDefinitions = Object.fromEntries(WORKOUT_SEQUENCE.map((key) => {
+    const definitions = [...planState.phases.flatMap((item) => item.workouts[key].exercises.flatMap((exercise) => exerciseNames(exercise).map((name) => ({ name, priority: exercise.priority, ...(exercise.loadSuffix ? { loadSuffix: exercise.loadSuffix } : {}) })))), ...completed.filter((session) => session.workout === key).flatMap((session) => session.exercises.map(({ name, priority, loadSuffix }) => ({ name, priority, ...(loadSuffix ? { loadSuffix } : {}) })))];
+    return [key, [...new Map(definitions.map((item) => [item.name, item])).values()]];
+  }));
+  const savePlan = (nextPlan: typeof planState) => {
+    try { manager.set("planState", normalizePlanState(nextPlan)); return ""; }
+    catch (error) { return error instanceof Error ? error.message : "Unable to save the training phase."; }
+  };
   const setDrafts = bindField(manager, "drafts");
   const setCheckpoints = bindField(manager, "checkpoints");
   const setExerciseChoices = bindField(manager, "exerciseChoices");
@@ -265,9 +252,10 @@ function App({ manager }: { manager: PeerSyncManager }) {
   const setBodyweight = bindField(manager, "bodyweight");
   const setSessionNote = bindField(manager, "sessionNote");
   const [activeTab, setActiveTab] = useState<WorkoutKey>(() => activeWorkout?.workout ?? next);
-  const [appView, setAppView] = useState<AppView>(() => (value => value === "progress" || value === "sessions" ? value : "train")(readStored<AppView>(APP_VIEW_KEY, "train")));
+  const [appView, setAppView] = useState<AppView>(() => (value => value === "progress" || value === "sessions" || value === "plan" ? value : "train")(readStored<AppView>(APP_VIEW_KEY, "train")));
   const [lightbox, setLightbox] = useState<LightboxImage | null>(null);
   const [autumnOpen, setAutumnOpen] = useState(false);
+  const [adjusting, setAdjusting] = useState(false);
   const [finishing, setFinishing] = useState(false);
   const [finishEndedAt, setFinishEndedAt] = useState<string | null>(null);
   const [finishError, setFinishError] = useState("");
@@ -278,6 +266,7 @@ function App({ manager }: { manager: PeerSyncManager }) {
   const [autumnBusy, setAutumnBusy] = useState(false);
   const [theme, setTheme] = useState<Theme>(() => { const saved = readStored<string>(THEME_KEY, ""); if (saved === "light" || saved === "dark") return saved; return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"; });
 
+  useEffect(() => { if (savedPlanState) storeLocal(PLAN_STORAGE_KEY, savedPlanState); }, [savedPlanState]);
   useEffect(() => { storeLocal(HISTORY_KEY, history); }, [history]);
   useEffect(() => { storeLocal(DRAFTS_KEY, drafts); }, [drafts]);
   useEffect(() => { storeLocal(CHECKPOINTS_KEY, checkpoints); }, [checkpoints]);
@@ -292,7 +281,7 @@ function App({ manager }: { manager: PeerSyncManager }) {
       const current = manager.getSnapshot();
       if (current.next !== previous.next || current.activeWorkout?.id !== previous.activeWorkout?.id) {
         setActiveTab(current.activeWorkout?.workout ?? current.next);
-        if (!current.activeWorkout) { setFinishing(false); setFinishEndedAt(null); }
+        if (!current.activeWorkout) { setAdjusting(false); setFinishing(false); setFinishEndedAt(null); }
       }
       previous = current;
     });
@@ -324,19 +313,19 @@ function App({ manager }: { manager: PeerSyncManager }) {
     setCheckpoints(nextCheckpoints);
     return { ok: true, message: "Checked and saved on this device." };
   };
-  const startWorkout = () => { const active = createActiveWorkout(next); setActiveWorkout(active); setActiveTab(next); setAppView("train"); setFinishing(false); setFinishEndedAt(null); setFinishError(""); window.scrollTo({ top: 0, behavior: "smooth" }); };
+  const startWorkout = () => { const active = { ...createActiveWorkout(next), training: trainingForWorkout(phase, next) }; setActiveWorkout(active); setAdjusting(false); setActiveTab(next); setAppView("train"); setFinishing(false); setFinishEndedAt(null); setFinishError(""); window.scrollTo({ top: 0, behavior: "smooth" }); };
   const cancelWorkout = () => {
     if (!activeWorkout || !window.confirm("Cancel this workout and clear its entered sets?")) return;
-    const names = workoutExerciseNames(activeWorkout.workout);
+    const names = workoutExerciseNames(activeExercises);
     manager.change({ ...manager.getSnapshot(), drafts: Object.fromEntries(Object.entries(drafts).filter(([name]) => !names.has(name))), checkpoints: Object.fromEntries(Object.entries(checkpoints).filter(([name]) => !names.has(name))), exerciseChoices: {}, activeWorkout: null, bodyweight: "", sessionNote: "" }); setFinishing(false); setFinishEndedAt(null);
   };
   const saveFinishedWorkout = () => {
     if (!activeWorkout) return;
-    const result = completeWorkout({ active: activeWorkout, definitions: resolvedExercises(activeWorkout.workout, exerciseChoices).map(({ name, priority, loadSuffix }) => ({ name, priority, loadSuffix })), drafts, bodyweight, note: sessionNote, endedAt: finishEndedAt ?? new Date().toISOString() });
+    const result = completeWorkout({ active: activeWorkout, definitions: resolvedExercises(activeExercises, exerciseChoices).map(({ name, priority, loadSuffix }) => ({ name, priority, loadSuffix })), drafts, bodyweight, note: sessionNote, endedAt: finishEndedAt ?? new Date().toISOString() });
     if (!result.session) { setFinishError(result.error || "The workout could not be saved."); return; }
     const session = result.session;
     if (autumn.projectId && autumn.projectName) session.sync = { ...session.sync, projectId: autumn.projectId, projectName: autumn.projectName };
-    const names = workoutExerciseNames(session.workout);
+    const names = workoutExerciseNames(activeExercises);
     const following = followingWorkout(session.workout);
     manager.change({ ...manager.getSnapshot(), history: addWorkoutToHistory(history, session), completed: [session, ...completed.filter((item) => item.id !== session.id)], drafts: Object.fromEntries(Object.entries(drafts).filter(([name]) => !names.has(name))), checkpoints: Object.fromEntries(Object.entries(checkpoints).filter(([name]) => !names.has(name))), exerciseChoices: {}, activeWorkout: null, next: following, bodyweight: "", sessionNote: "" });
     setActiveTab(following); setFinishing(false); setFinishEndedAt(null); setFinishError(""); window.scrollTo({ top: 0, behavior: "smooth" });
@@ -344,7 +333,7 @@ function App({ manager }: { manager: PeerSyncManager }) {
   const beginFinish = () => {
     if (!activeWorkout || finishing) return;
     const endedAt = new Date().toISOString();
-    setFinishEndedAt(endedAt); setFinishing(true); setFinishError("");
+    setAdjusting(false); setFinishEndedAt(endedAt); setFinishing(true); setFinishError("");
   };
   const resumeWorkout = () => { setFinishing(false); setFinishEndedAt(null); setFinishError(""); };
 
@@ -398,7 +387,7 @@ function App({ manager }: { manager: PeerSyncManager }) {
   const pending = completed.filter((session) => session.sync.status === "unsynced" || session.sync.status === "error" || session.sync.status === "syncing");
   const finishSummary = useMemo<FinishSummary>(() => {
     if (!activeWorkout) return { exerciseCount: 0, exerciseTotal: 0, setCount: 0, missingMust: [], unsaved: [] };
-    const definitions = resolvedExercises(activeWorkout.workout, exerciseChoices);
+    const definitions = resolvedExercises(activeExercises, exerciseChoices);
     const entered = definitions.map((exercise) => ({ exercise, result: selectedExerciseSets(drafts[exercise.name] ?? []) })).filter(({ result }) => result.sets.length > 0);
     return {
       exerciseCount: entered.length,
@@ -407,16 +396,20 @@ function App({ manager }: { manager: PeerSyncManager }) {
       missingMust: definitions.filter((exercise) => exercise.priority === "must" && !entered.some((item) => item.exercise.name === exercise.name)).map((exercise) => exercise.name),
       unsaved: entered.filter(({ exercise }) => checkpoints[exercise.name]?.workoutId !== activeWorkout.id || checkpoints[exercise.name]?.fingerprint !== exerciseFingerprint(drafts[exercise.name] ?? [])).map(({ exercise }) => exercise.name),
     };
-  }, [activeWorkout, checkpoints, drafts, exerciseChoices]);
+  }, [activeWorkout, checkpoints, drafts, exerciseChoices, activeExercises]);
   return <>
-    <header className="app-header"><div className="app-brand"><h1>Rolling PPL</h1><p>Chest-prioritized · no weekly reset</p></div><nav className="primary-nav" aria-label="App sections"><button type="button" className={appView === "train" ? "active" : ""} aria-current={appView === "train" ? "page" : undefined} onClick={() => setAppView("train")}>Train{activeWorkout && <i aria-label="Workout in progress" />}</button><button type="button" className={appView === "progress" ? "active" : ""} aria-current={appView === "progress" ? "page" : undefined} onClick={() => setAppView("progress")}>Progress</button><button type="button" className={appView === "sessions" ? "active" : ""} aria-current={appView === "sessions" ? "page" : undefined} onClick={() => setAppView("sessions")}>Sessions</button></nav><div className="header-actions"><PeerSyncPanel manager={manager} /><button className="utility-button" type="button" onClick={() => setAutumnOpen(true)}>Autumn{pending.length > 0 && <b>{pending.length}</b>}</button><DataMenu history={history} workouts={completed} onImport={importHistory} />{installPrompt && <button className="install-button" type="button" onClick={installApp}>Install</button>}<button className="theme-toggle" type="button" onClick={() => setTheme((current) => current === "dark" ? "light" : "dark")} aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}><span aria-hidden="true">{theme === "dark" ? "☀" : "☾"}</span></button></div></header>
+    <header className="app-header"><div className="app-brand"><h1>Rolling PPL</h1><p>Chest-prioritized · no weekly reset</p></div><nav className="primary-nav" aria-label="App sections"><button type="button" className={appView === "train" ? "active" : ""} aria-current={appView === "train" ? "page" : undefined} onClick={() => setAppView("train")}>Train{activeWorkout && <i aria-label="Workout in progress" />}</button><button type="button" className={appView === "progress" ? "active" : ""} aria-current={appView === "progress" ? "page" : undefined} onClick={() => setAppView("progress")}>Progress</button><button type="button" className={appView === "sessions" ? "active" : ""} aria-current={appView === "sessions" ? "page" : undefined} onClick={() => setAppView("sessions")}>Sessions</button><button type="button" className={appView === "plan" ? "active" : ""} aria-current={appView === "plan" ? "page" : undefined} onClick={() => setAppView("plan")}>Plan</button></nav><div className="header-actions"><PeerSyncPanel manager={manager} /><button className="utility-button" type="button" onClick={() => setAutumnOpen(true)}>Autumn{pending.length > 0 && <b>{pending.length}</b>}</button><DataMenu history={history} workouts={completed} onImport={importHistory} /><FullBackup manager={manager} />{installPrompt && <button className="install-button" type="button" onClick={installApp}>Install</button>}<button className="theme-toggle" type="button" onClick={() => setTheme((current) => current === "dark" ? "light" : "dark")} aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}><span aria-hidden="true">{theme === "dark" ? "☀" : "☾"}</span></button></div></header>
     <main>
       {appView === "train" ? <><TrainingRail next={next} active={activeWorkout} finishEndedAt={finishEndedAt ?? undefined} finishing={finishing} latest={latest} syncBusy={autumnBusy} onSetNext={(workout) => { setNext(workout); setActiveTab(workout); }} onStart={startWorkout} onFinish={beginFinish} onCancel={cancelWorkout} onSync={syncWorkout} />
+        <div className="training-phase-note"><span>Training phase: <strong>{activeWorkout?.training?.phaseName ?? (activeWorkout ? "Original workout" : phase.name)}</strong></span>{activeWorkout && !finishing && <button className="text-action" type="button" onClick={() => setAdjusting(!adjusting)}>{adjusting ? "Close adjustments" : "Adjust this workout"}</button>}</div>
+        {adjusting && activeWorkout && <SessionPlanEditor key={activeWorkout.id} exercises={activeExercises} draftsWithSets={Object.entries(drafts).filter(([, sets]) => sets.some((set) => set.load.trim() || set.reps.trim())).map(([name]) => name)} onClose={() => setAdjusting(false)} onSave={(exercises) => {
+          try { setActiveWorkout({ ...activeWorkout, training: { ...(activeWorkout.training ?? trainingForWorkout(defaultPlanState().phases[0], activeWorkout.workout)), exercises } }); setAdjusting(false); return ""; } catch (error) { return error instanceof Error ? error.message : "Unable to save session adjustments."; }
+        }} />}
         {finishing && activeWorkout && <FinishWorkout workout={activeWorkout.workout} bodyweight={bodyweight} note={sessionNote} error={finishError} summary={finishSummary} onBodyweight={setBodyweight} onNote={setSessionNote} onBack={resumeWorkout} onSave={saveFinishedWorkout} />}
-        <div className="workout-tabs" role="tablist" aria-label="Choose a workout to view">{WORKOUT_SEQUENCE.map((key) => <button key={key} role="tab" aria-selected={activeTab === key} className={activeTab === key ? `active ${key}` : ""} onClick={() => setActiveTab(key)}>{key}<small>{activeWorkout?.workout === key ? "logging now" : `${workouts[key].exercises.length} exercises`}</small></button>)}</div>
+        <div className="workout-tabs" role="tablist" aria-label="Choose a workout to view">{WORKOUT_SEQUENCE.map((key) => <button key={key} role="tab" aria-selected={activeTab === key} className={activeTab === key ? `active ${key}` : ""} onClick={() => setActiveTab(key)}>{key}<small>{activeWorkout?.workout === key ? "logging now" : `${viewWorkouts[key].exercises.length} exercises`}</small></button>)}</div>
         <p className="storage-note">Entries recover automatically. Save each exercise when done; finish once.</p>
-        <Workout workout={activeTab} onOpen={setLightbox} history={history} drafts={drafts} choices={exerciseChoices} enabled={activeWorkout?.workout === activeTab && !finishing} activeWorkoutId={activeWorkout?.workout === activeTab ? activeWorkout.id : undefined} checkpoints={checkpoints} onChoiceChange={chooseExercise} onDraftChange={updateDraft} onSave={saveExercise} /><Notes /></>
-        : appView === "sessions" ? <SessionHistory sessions={completed} definitions={sessionDefinitions} onSave={saveSessionEdit} /> : <Progress sessions={completed} history={history} />}
+        <Workout workout={activeTab} data={viewWorkouts[activeTab]} onOpen={setLightbox} history={history} drafts={drafts} choices={exerciseChoices} enabled={activeWorkout?.workout === activeTab && !finishing} activeWorkoutId={activeWorkout?.workout === activeTab ? activeWorkout.id : undefined} checkpoints={checkpoints} onChoiceChange={chooseExercise} onDraftChange={updateDraft} onSave={saveExercise} /><Notes /></>
+        : appView === "plan" ? <PlanPanel state={planState} sessions={completed} activePhase={activeWorkout?.training?.phaseName} onSave={savePlan} /> : appView === "sessions" ? <SessionHistory sessions={completed} definitions={sessionDefinitions} onSave={saveSessionEdit} /> : <Progress sessions={completed} history={history} />}
     </main>
     <footer><p><strong>Rolling PPL</strong> · Keep the sequence; skip the weekly reset.</p><p>Exercise imagery from the public-domain <a href="https://github.com/yuhonas/free-exercise-db" target="_blank" rel="noreferrer">Free Exercise DB</a> (Unlicense).</p></footer>
     <Lightbox image={lightbox} onClose={() => setLightbox(null)} />
@@ -434,6 +427,7 @@ function initialSyncSnapshot(): SyncSnapshot {
     drafts: activeWorkout ? readStored<DraftMap>(DRAFTS_KEY, {}) : pruneCompletedDrafts(readStored<DraftMap>(DRAFTS_KEY, {}), history),
     checkpoints: readStored<CheckpointMap>(CHECKPOINTS_KEY, {}), exerciseChoices: {},
     next: isWorkoutKey(storedNext) ? storedNext : completed[0] ? followingWorkout(completed[0].workout) : "push",
+    ...(localStorage.getItem(PLAN_STORAGE_KEY) ? { planState: normalizePlanState(readStored(PLAN_STORAGE_KEY, null)) } : {}),
     bodyweight: "", sessionNote: "" };
 }
 

@@ -5,7 +5,7 @@ A phone-first, chest-prioritized rolling Push/Pull/Legs workout tracker. The seq
 ## Features
 
 - Persistent next-workout sequence with start, elapsed-time, and finish controls
-- Separate Train, Progress, and Sessions destinations, with three focused workout tabs inside Train
+- Separate Train, Progress, Sessions, and Plan destinations, with three focused workout tabs inside Train
 - Gym-readable exercise rows with work sets, optional warm-ups, rest, cues, and click-to-enlarge public-domain photos
 - Crash-safe workout drafts and completed sessions with optional peer-to-peer browser sync
 - Previous-session context, per-set target placeholders, and double-progression suggestions
@@ -19,6 +19,22 @@ A phone-first, chest-prioritized rolling Push/Pull/Legs workout tracker. The seq
 - Installable PWA with offline workout access
 - Warm-up, progression, rest, and safety guidance
 - Responsive static build for GitHub Pages
+
+## Body progress, photos, and training phases
+
+Progress now groups body progress, lift history, and private photos. Independent weigh-ins can be recorded without starting a workout. The body trend uses one reading per local calendar day: an independent entry takes precedence over workout bodyweight on that date. Seven-day averages show how many days were actually recorded. Goals support several user-defined weight milestones; the app automatically detects first reached and sustained as separate achievements. Sustained means the configured number of consecutive calendar days with a reading at or above the target, not an inferred streak across missing days. Tape measurements are optional and remain separate from weight.
+
+Progress photos are compressed and kept in the dedicated `rolling-ppl-progress-photos` IndexedDB database. Photos captured inside the app are not written to the phone's gallery. Importing an existing photo copies it; its original remains wherever it was selected. Camera capture requires HTTPS or localhost and permission. The app does not estimate measurements or body fat from photographs. Browser storage is private to this site/browser profile, not an encrypted photo vault; clearing site data or losing the device can lose the local copy.
+
+**Backup → Download complete backup** includes workouts, active drafts, saved plans, independent body records, goals, measurements, and photos in one JSON file. Credentials and pairing keys are excluded. The download contains private photos, so save it somewhere appropriate and verify it completed. The displayed timestamp is when the download was started, not proof of an external backup. Restore validates the file first and merges records rather than clearing unrelated history. Existing workout IDs use the backup copy; newer body edits/deletion records are retained. An existing active workout stays intact. Restoring into an empty browser also recovers the active draft. The original **Data** menu remains available for workout-only JSON/CSV transfers.
+
+Body records and photos currently stay on each device and travel through complete backups; they are not included in peer pairing. Workouts and training phases use the existing device sync. Update both paired browsers before exchanging new training-phase data.
+
+Complete backups have a 300 MiB limit; photo backups support up to 1,000 photos and 256 MiB per file. If a large photo collection prevents a complete export, turn off **Include private photos** to download your training and body records separately. Keep separate photo backups; a records backup cannot recover photos.
+
+The **Plan** section starts from the current Push/Pull/Legs sequence. Save adjustments as a new named phase; prior phases remain available. Workouts retain their starting phase and exercise prescriptions, so later edits do not rewrite completed sessions or change an active session's plan. This release edits the three PPL workouts; arbitrary workout splits are a later extension.
+
+All of this runs in the existing offline-capable PWA, with no new account, hosted database, or object-storage service. Install from Chrome's install menu on Android or Safari's Add to Home Screen on iPhone. Backups remain necessary even when persistent browser storage is granted.
 
 ## Local development
 
@@ -63,7 +79,7 @@ The Progress tab plots up to 24 bodyweight readings. Volume is the sum of record
 
 Both JSON and current CSV backups restore workout-level bodyweight and notes. Older lift-only Rolling PPL CSV files remain importable; they simply contain no workout metadata to restore.
 
-Under **Data**, choose **Export to** or **Import from**. Export destinations include download, Google Drive, OneDrive, WhatsApp, ChatGPT, clipboard, and the device share sheet (for email, AirDrop, and other installed apps). Choose JSON for a full backup including sync receipts, or CSV for spreadsheets.
+Under **Data**, choose **Export to** or **Import from**. Export destinations include download, Google Drive, OneDrive, WhatsApp, ChatGPT, clipboard, and the device share sheet (for email, AirDrop, and other installed apps). Choose JSON for workout history including sync receipts, or CSV for spreadsheets. Use **Backup** for the complete app including body records and photos.
 
 Tapping an export app immediately opens the device share sheet, where you select the installed app. Browsers cannot preselect a share target, and available apps depend on the device and file type. No transfer option opens a provider website. When file sharing is unavailable, use Download or Copy to clipboard and attach or paste the backup in the app. If a browser cannot share JSON directly, the share sheet receives the same backup as `.json.txt`, which this app can import without renaming. Import from a cloud provider in the device file picker, a saved attachment, or pasted JSON/CSV. Imports merge by record ID and preserve unrelated history.
 

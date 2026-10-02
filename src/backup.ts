@@ -1,5 +1,6 @@
 import { canonicalExerciseName, type HistoryMap, type SetEntry } from "./historyMigration.ts";
 import type { CompletedExercise, CompletedWorkout, WorkoutKey, WorkoutSync } from "./sessionModel";
+import { validateWorkoutTraining } from "./planModel.ts";
 
 export type ExportSession = {
   exercise: string;
@@ -87,6 +88,7 @@ function normalizeWorkout(value: unknown, position: number): CompletedWorkout {
   const rawSync = isRecord(value.sync) && SYNC_STATUSES.includes(value.sync.status as WorkoutSync["status"])
     ? value.sync as WorkoutSync
     : { status: "legacy" as const };
+  if (value.training !== undefined) validateWorkoutTraining(value.training);
   return {
     id,
     workout: value.workout,
@@ -96,6 +98,7 @@ function normalizeWorkout(value: unknown, position: number): CompletedWorkout {
     note: typeof value.note === "string" ? value.note.trim() : "",
     exercises,
     sync: rawSync,
+    ...(value.training ? { training: structuredClone(value.training) } : {}),
   };
 }
 

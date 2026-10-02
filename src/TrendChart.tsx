@@ -5,7 +5,7 @@ const number = (value: number) => value.toLocaleString(undefined, { maximumFract
 const dateLabel = (date: string) => new Date(date).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
 
 export function TrendChart({ series, unit, emptyTitle, emptyHint, label }: {
-  series: ExerciseSeries[]; unit: "kg" | "kg·reps"; emptyTitle: string; emptyHint: string; label: string;
+  series: ExerciseSeries[]; unit: "kg" | "kg·reps" | "cm"; emptyTitle: string; emptyHint: string; label: string;
 }) {
   const container = useRef<HTMLDivElement>(null);
   const gradient = useId();
@@ -44,7 +44,7 @@ export function TrendChart({ series, unit, emptyTitle, emptyHint, label }: {
           <p>{item.points.length > 1 ? `${delta > 0 ? "+" : ""}${number(delta)} ${unit} from first shown` : "First recorded reading"}</p>
         </div>;
       })}</div>
-      <div className="trend-axis-label"><span>{unit === "kg" ? "Weight (kg)" : "Recorded volume (kg × reps)"}</span><span>{Math.max(...series.map((item) => item.points.length))} reading{Math.max(...series.map((item) => item.points.length)) === 1 ? "" : "s"}{series.length > 1 ? " max per lift" : ""}</span></div>
+      <div className="trend-axis-label"><span>{unit === "kg" ? "Weight (kg)" : unit === "cm" ? "Circumference (cm)" : "Recorded volume (kg × reps)"}</span><span>{Math.max(...series.map((item) => item.points.length))} reading{Math.max(...series.map((item) => item.points.length)) === 1 ? "" : "s"}{series.length > 1 ? " max per lift" : ""}</span></div>
       <svg className="trend-plot" width="100%" height="266" viewBox={`0 0 ${width} 266`} role="group" aria-label={label}>
         <defs><linearGradient id={gradient} x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="var(--trace-0)" stopOpacity=".23" /><stop offset="100%" stopColor="var(--trace-0)" stopOpacity=".015" /></linearGradient></defs>
         {ticks.map((tick) => <g className="trend-grid" key={tick}><line x1={left} x2={right} y1={yFor(tick)} y2={yFor(tick)} /><text x={left - 10} y={yFor(tick) + 4} textAnchor="end">{tick.toLocaleString(undefined, { maximumFractionDigits: 2, notation: tick >= 10000 ? "compact" : "standard" })}</text></g>)}

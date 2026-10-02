@@ -112,7 +112,7 @@ export function DataMenu({ history, workouts, onImport }: {
       <h2 ref={heading} tabIndex={-1}>{selected?.label ?? (destination === "paste" ? "Paste a backup" : "Workout history")}</h2>
       {mode === "export" ? <>
         <label className="transfer-format">File format<select value={format} disabled={busy} onChange={(event) => { setFormat(event.target.value as ExportFormat); setNotice(null); setCopyFallback(""); }}>
-          <option value="json">JSON · full backup</option><option value="csv">CSV · spreadsheet</option>
+          <option value="json">JSON · workout history</option><option value="csv">CSV · spreadsheet</option>
         </select></label>
         {!hasHistory && <p>Save a workout to export your history.</p>}
           <p>App options open your device’s share sheet. Select the installed app there.</p>

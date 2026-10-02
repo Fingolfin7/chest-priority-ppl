@@ -6,7 +6,7 @@ export function validateSessionEdit(original: CompletedWorkout, draft: Completed
     return { error: "Enter a valid start and end time." };
   }
   const result = completeWorkout({
-    active: { id: original.id, workout: original.workout, startedAt: draft.startedAt },
+    active: { id: original.id, workout: original.workout, startedAt: draft.startedAt, ...(original.training ? { training: original.training } : {}) },
     endedAt: draft.endedAt, bodyweight: draft.bodyweight, note: draft.note,
     definitions: draft.exercises.map(({ name, priority, loadSuffix }) => ({ name, priority, ...(loadSuffix ? { loadSuffix } : {}) })),
     drafts: Object.fromEntries(draft.exercises.map((exercise) => [exercise.name, exercise.sets])),

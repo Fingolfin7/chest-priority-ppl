@@ -1,4 +1,5 @@
 import * as Automerge from "@automerge/automerge";
+import { normalizePlanState, validateTrainingPhase, validateWorkoutTraining, type PlanState, type TrainingPhase, type WorkoutTraining } from "./planModel.ts";
 import { canonicalExerciseName, type HistoryMap, type SetEntry } from "./historyMigration.ts";
 import type { DraftMap } from "./drafts.ts";
 import type { ActiveWorkout, CompletedWorkout, WorkoutKey, WorkoutSync } from "./sessionModel.ts";
@@ -13,6 +14,7 @@ export type SyncSnapshot = {
   exerciseChoices: Record<string, string>;
   bodyweight: string;
   sessionNote: string;
+  planState?: PlanState;
 };
 
 // One shared map object, with scalar registers at stable paths. Creating nested
@@ -69,6 +71,7 @@ function flatten(snapshot: SyncSnapshot, relatedWorkouts = snapshot.completed): 
     const prefix = ["workout", workout.id];
     put([...prefix, "alive"], true);
     for (const field of ["workout", "startedAt", "endedAt", "bodyweight", "note"] as const) put([...prefix, field], workout[field]);
+    if (workout.training) put([...prefix, "training"], JSON.stringify(workout.training));
     // Receipts may sync; Autumn credentials and project preferences never enter
     // the document. A receipt is atomic so status and session ID stay together.
     put([...prefix, "sync"], JSON.stringify(Object.fromEntries(Object.entries(workout.sync).filter(([, value]) => value !== undefined).sort(([a], [b]) => a.localeCompare(b)))));
@@ -98,6 +101,7 @@ function flatten(snapshot: SyncSnapshot, relatedWorkouts = snapshot.completed): 
     const active = snapshot.activeWorkout;
     put(["active", active.id, "alive"], true); put(["active", active.id, "workout"], active.workout);
     put(["active", active.id, "startedAt"], active.startedAt);
+    if (active.training) put(["active", active.id, "training"], JSON.stringify(active.training));
   }
   const scope = snapshot.activeWorkout?.id ?? UNASSIGNED;
   put(["draft", scope, "bodyweight"], snapshot.bodyweight); put(["draft", scope, "note"], snapshot.sessionNote);
@@ -111,6 +115,10 @@ function flatten(snapshot: SyncSnapshot, relatedWorkouts = snapshot.completed): 
   Object.entries(snapshot.exerciseChoices ?? {}).forEach(([slot, exercise]) => {
     put(["choice", scope, slot], canonicalExerciseName(exercise));
   });
+  if (snapshot.planState) {
+    put(["state", "phaseId"], snapshot.planState.currentId);
+    snapshot.planState.phases.forEach((phase) => { put(["phase", phase.id, "alive"], true); put(["phase", phase.id, "definition"], JSON.stringify(phase)); });
+  }
   return fields;
 }
 
@@ -131,6 +139,7 @@ function alternatives(doc: Automerge.Doc<SyncData>, key: string): Array<{ id: st
 }
 
 function recordParents(parts: string[]): string[] {
+  if (parts[0] === "phase") return [pathKey("phase", parts[1], "alive")];
   if (parts[0] === "workout" || parts[0] === "active") return [pathKey(parts[0], parts[1], "alive")];
   if (parts[0] === "exercise") return [pathKey("exercise", parts[1], parts[2], "alive"), pathKey("workout", parts[1], "alive")];
   if (parts[0] === "history") return [pathKey(parts[0], parts[1], parts[2], "alive")];
@@ -280,6 +289,15 @@ function receipt(raw: Scalar): WorkoutSync {
   return data as WorkoutSync;
 }
 
+function parseTraining(raw: Scalar): WorkoutTraining {
+  if (typeof raw !== "string") throw new Error("Invalid workout training snapshot.");
+  const value: unknown = JSON.parse(raw); validateWorkoutTraining(value); return value;
+}
+function parsePhase(raw: Scalar): TrainingPhase {
+  if (typeof raw !== "string") throw new Error("Invalid training phase.");
+  const value: unknown = JSON.parse(raw); validateTrainingPhase(value); return value;
+}
+
 function checkpoint(raw: Scalar) {
   if (raw === null) return null;
   if (typeof raw !== "string") throw new Error("Invalid saved-exercise checkpoint.");
@@ -294,15 +312,16 @@ function checkpoint(raw: Scalar) {
 function validateField(parts: string[], value: Scalar) {
   const kind = parts[0]; const field = parts.at(-1);
   let validPath = false;
-  if (kind === "workout" && parts.length === 3) validPath = ["alive", "workout", "startedAt", "endedAt", "bodyweight", "note", "sync"].includes(field!);
-  if (kind === "active" && parts.length === 3) validPath = ["alive", "workout", "startedAt"].includes(field!);
+  if (kind === "workout" && parts.length === 3) validPath = ["alive", "workout", "startedAt", "endedAt", "bodyweight", "note", "sync", "training"].includes(field!);
+  if (kind === "active" && parts.length === 3) validPath = ["alive", "workout", "startedAt", "training"].includes(field!);
+  if (kind === "phase" && parts.length === 3) validPath = ["alive", "definition"].includes(field!);
   if (kind === "exercise" && parts.length === 4) validPath = ["alive", "priority", "loadSuffix", "order"].includes(field!);
   if (kind === "history" && parts.length === 4) validPath = ["alive", "savedAt"].includes(field!);
   if (kind === "draftExercise" && parts.length === 4) validPath = field === "alive";
   if (kind === "set" && parts.length === 6 && ["workout", "history", "draft"].includes(parts[1])) validPath = ["alive", "load", "reps", "order"].includes(field!);
   if (kind === "draft" && parts.length === 3) validPath = ["bodyweight", "note"].includes(field!);
   if (kind === "choice" && parts.length === 3) validPath = true;
-  if (kind === "state" && parts.length === 2) validPath = ["activeId", "next"].includes(field!);
+  if (kind === "state" && parts.length === 2) validPath = ["activeId", "next", "phaseId"].includes(field!);
   if (kind === "historyLink" && parts.length === 3) {
     if (typeof value !== "string" || !value) throw new Error("Invalid legacy workout link.");
     return;
@@ -319,6 +338,8 @@ function validateField(parts: string[], value: Scalar) {
   if (field === "bodyweight" && kind === "workout" && value && (!Number.isFinite(Number(value)) || Number(value) <= 0)) throw new Error("Invalid workout bodyweight.");
   if (kind === "set" && parts[1] !== "draft" && field === "reps" && (!value.trim() || !Number.isFinite(Number(value)) || Number(value) <= 0)) throw new Error("Invalid completed set reps.");
   if (field === "sync") receipt(value);
+  if (field === "training") parseTraining(value);
+  if (kind === "phase" && field === "definition") { const phase = parsePhase(value); if (phase.id !== parts[1]) throw new Error("Invalid phase identity."); }
 }
 
 function readFields(doc: Automerge.Doc<SyncData>): Flat {
@@ -390,6 +411,8 @@ function projected(fields: Flat): SyncSnapshot {
       id, workout: text([...prefix, "workout"]) as WorkoutKey, startedAt: text([...prefix, "startedAt"]), endedAt: text([...prefix, "endedAt"]),
       bodyweight: text([...prefix, "bodyweight"], ""), note: text([...prefix, "note"], ""), exercises, sync: receipt(text([...prefix, "sync"])),
     };
+    const training = get([...prefix, "training"]);
+    if (typeof training === "string") workout.training = parseTraining(training);
     if (Date.parse(workout.endedAt) < Date.parse(workout.startedAt)) throw new Error("A synced workout ends before it starts.");
     allWorkouts.push(workout);
     if (live(...prefix)) completed.push(workout);
@@ -417,6 +440,10 @@ function projected(fields: Flat): SyncSnapshot {
   if (typeof activeId === "string" && live("active", activeId)) {
     activeWorkout = { id: activeId, workout: text(["active", activeId, "workout"]) as WorkoutKey, startedAt: text(["active", activeId, "startedAt"]) };
   }
+  if (activeWorkout) {
+    const training = get(["active", activeWorkout.id, "training"]);
+    if (typeof training === "string") activeWorkout.training = parseTraining(training);
+  }
   const scope = activeWorkout?.id ?? UNASSIGNED;
   const drafts: DraftMap = Object.fromEntries(ids("draftExercise").filter(([owner, name]) => owner === scope && live("draftExercise", owner, name)).map(([owner, name]) => [name, sets("draft", owner, name)]));
   const checkpoints: SyncSnapshot["checkpoints"] = {};
@@ -432,7 +459,10 @@ function projected(fields: Flat): SyncSnapshot {
   const exerciseChoices = Object.fromEntries(entries
     .filter(({ parts, value }) => parts[0] === "choice" && parts[1] === scope && typeof value === "string")
     .map(({ parts, value }) => [parts[2], value as string]));
-  return { history, completed, drafts, activeWorkout, next: text(["state", "next"], "push") as WorkoutKey, checkpoints, exerciseChoices,
+  const phases = ids("phase").filter(([id]) => live("phase", id)).map(([id]) => parsePhase(text(["phase", id, "definition"])));
+  const phaseId = get(["state", "phaseId"]);
+  const planState = phases.length && typeof phaseId === "string" ? normalizePlanState({ currentId: phaseId, phases: phases.sort((a, b) => a.startedAt.localeCompare(b.startedAt) || a.id.localeCompare(b.id)) }) : undefined;
+  return { ...(planState ? { planState } : {}), history, completed, drafts, activeWorkout, next: text(["state", "next"], "push") as WorkoutKey, checkpoints, exerciseChoices,
     bodyweight: text(["draft", scope, "bodyweight"], ""), sessionNote: text(["draft", scope, "note"], "") };
 }
 
@@ -457,6 +487,8 @@ function conflictLabel(parts: string[], fields: Flat) {
   const friendly: Record<string, string> = { alive: "deletion", load: "weight", reps: "reps", note: "note", bodyweight: "bodyweight", next: "next workout", activeId: "active workout", sync: "Autumn receipt", order: "order", startedAt: "start time", endedAt: "end time" };
   if (parts[0] === "set") return `${parts[3]} · set ${Number(fields.get(pathKey(...parts.slice(0, -1), "order")) ?? 0) + 1} · ${friendly[field] ?? field}`;
   if (parts[0] === "exercise" || parts[0] === "draftExercise" || parts[0] === "checkpoint") return `${parts[2]} · ${friendly[field] ?? "saved exercise"}`;
+  if (parts[0] === "phase") return "Training phase definition";
+  if (parts[0] === "state" && field === "phaseId") return "Current training phase";
   if (parts[0] === "choice") return `${parts[2]} · selected exercise`;
   if (parts[0] === "workout" || parts[0] === "active") {
     const workout = String(fields.get(pathKey(parts[0], parts[1], "workout")) ?? "Workout");
