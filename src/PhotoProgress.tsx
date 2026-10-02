@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import {
-  deleteProgressPhoto,
   exportProgressPhotos,
   getProgressPhotoStorageInfo,
   getProgressPhotos,
@@ -14,6 +13,8 @@ import {
   type ProgressPhotoView,
 } from "./photoStorage";
 import "./photoProgress.css";
+import { CloudPhotoBackupPanel, useCloudPhotoBackup } from "./CloudPhotoBackupPanel";
+import { cloudPhotoStatus, removePhotoWithCloudChoice } from "./cloudPhotoBackup";
 
 const VIEWS: ProgressPhotoView[] = ["front", "side", "back"];
 const ACCEPTED_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
@@ -42,6 +43,7 @@ function asErrorMessage(error: unknown) {
 }
 
 export function PhotoProgress() {
+  const cloudBackup = useCloudPhotoBackup();
   const [photos, setPhotos] = useState<ProgressPhoto[]>([]);
   const [loading, setLoading] = useState(true);
   const [storageError, setStorageError] = useState("");
@@ -57,6 +59,7 @@ export function PhotoProgress() {
   const [cameraStep, setCameraStep] = useState(0);
   const [countdown, setCountdown] = useState<number | null>(null);
   const [pendingDelete, setPendingDelete] = useState<ProgressPhoto | null>(null);
+  const [deleteCloudCopy, setDeleteCloudCopy] = useState(false);
   const [previewPhoto, setPreviewPhoto] = useState<ProgressPhoto | null>(null);
   const [compareView, setCompareView] = useState<ProgressPhotoView>("front");
   const [beforeId, setBeforeId] = useState("");
@@ -309,11 +312,11 @@ export function PhotoProgress() {
     const photo = pendingDelete;
     setBusy(true);
     try {
-      await deleteProgressPhoto(photo.id);
+      await removePhotoWithCloudChoice(photo, deleteCloudCopy);
       setPendingDelete(null);
         focusReturnRef.current = galleryHeadingRef.current;
       setPreviewPhoto((current) => current?.id === photo.id ? null : current);
-      setStatus(`${viewLabel(photo.view)} photo from ${displayDate(photo.date)} deleted from this app.`);
+      setStatus(deleteCloudCopy ? "Photo removed from this device. Cloud deletion is queued and will finish when connected with backup enabled." : `${viewLabel(photo.view)} photo from ${displayDate(photo.date)} removed from this device. Any cloud backup is kept.`);
     } catch (error) {
       setStatus(asErrorMessage(error));
     } finally {
@@ -394,14 +397,16 @@ export function PhotoProgress() {
   return <section className="photo-progress" aria-labelledby="photo-progress-title">
     <header className="photo-progress-heading">
       <div>
-        <p className="photo-progress-eyebrow">Private to this browser</p>
+        <p className="photo-progress-eyebrow">Private progress</p>
         <h2 id="photo-progress-title">Progress photos</h2>
-        <p>Track front, side, and back views over time. Photos stay in this app&apos;s local browser storage and are never uploaded.</p>
+        <p>Track front, side, and back views over time. Photos save in this app&apos;s local browser storage. Enable photo backup below to keep a private cloud copy.</p>
       </div>
     </header>
 
     {storageError && <p className="photo-progress-error" role="alert">{storageError}</p>}
     {status && <p className="photo-progress-status" role="status">{status}</p>}
+
+    <CloudPhotoBackupPanel photos={photos} />
 
     <section className="photo-collection-summary" aria-label="Photo collection summary">
       <div className="photo-collection-total"><strong>{loading ? "Loading your collection…" : `${photos.length} ${photos.length === 1 ? "photo" : "photos"}`}</strong>{!loading && <span>Across {checkInCount} {checkInCount === 1 ? "check-in" : "check-ins"}</span>}</div>
@@ -452,7 +457,7 @@ export function PhotoProgress() {
     </section>
 
     <section className="photo-gallery" aria-labelledby="photo-gallery-title">
-      <div className="photo-section-heading"><div><h3 id="photo-gallery-title" ref={galleryHeadingRef} tabIndex={-1}>Your check-ins</h3><p>Photos stay on this device. Complete Backup includes them; workout exports do not.</p></div>
+      <div className="photo-section-heading"><div><h3 id="photo-gallery-title" ref={galleryHeadingRef} tabIndex={-1}>Your check-ins</h3><p>Complete Backup includes device photos; workout exports do not. Each photo shows its backup status.</p></div>
         <label>Show<select value={filterView} onChange={(event) => setFilterView(event.target.value as "all" | ProgressPhotoView)}><option value="all">All views</option>{VIEWS.map((view) => <option key={view} value={view}>{viewLabel(view)}</option>)}</select></label>
       </div>
       <details className="photo-storage-details">
@@ -460,7 +465,7 @@ export function PhotoProgress() {
         <div className="photo-storage-content">
           <section aria-labelledby="photo-storage-title">
             <h3 id="photo-storage-title">Storage on this device</h3>
-            <p>Photos stay in this browser on this device. They are not uploaded or added to your phone gallery.</p>
+            <p>Device copies stay in this browser. If enabled, photo backup also uploads private copies to your account. Camera captures are not added to your phone gallery.</p>
             <p className="photo-storage-usage">{formatBytes(storageInfo.usage)} of {formatBytes(storageInfo.quota)} site storage used</p>
             {!storageInfo.persisted && <button type="button" className="secondary-action" onClick={() => void protectStorage()} disabled={busy}>Ask browser to protect photos</button>}
             {storageInfo.persisted && <p className="photo-storage-protected">Your browser is protecting this site&apos;s storage from automatic cleanup.</p>}
@@ -486,13 +491,15 @@ export function PhotoProgress() {
           <button className="photo-thumbnail-button" type="button" onClick={(event) => { focusReturnRef.current = event.currentTarget; setPreviewPhoto(photo); }} aria-label={`Open ${viewLabel(photo.view)} photo from ${displayDate(photo.date)}`}>
             <img src={photoUrls.get(`${photo.id}:thumb`)} alt="" loading="lazy" />
           </button>
-          <div className="photo-card-details"><div><strong>{displayDate(photo.date)}</strong><span>{viewLabel(photo.view)} view</span></div><button type="button" className="text-action" onClick={(event) => { focusReturnRef.current = event.currentTarget; setPendingDelete(photo); }} disabled={busy}>Delete</button></div>
+          <div className="photo-card-details"><div><strong>{displayDate(photo.date)}</strong><span>{viewLabel(photo.view)} view</span><span className="photo-cloud-status">{cloudPhotoStatus(photo, cloudBackup)}</span></div><button type="button" className="text-action" onClick={(event) => { focusReturnRef.current = event.currentTarget; setDeleteCloudCopy(false); setPendingDelete(photo); }} disabled={busy}>Delete</button></div>
         </article>)}
       </div>}
     </section>
 
     {pendingDelete && <div className="photo-dialog-backdrop"><section ref={dialogRef} tabIndex={-1} className="photo-confirm-dialog" role="alertdialog" aria-modal="true" aria-labelledby="photo-delete-title" aria-describedby="photo-delete-description">
-      <h3 id="photo-delete-title">Delete this photo?</h3><p id="photo-delete-description">The {viewLabel(pendingDelete.view).toLowerCase()} photo from {displayDate(pendingDelete.date)} will be removed from this app. Any original in your gallery stays there.</p>
+      <h3 id="photo-delete-title">Remove this photo?</h3><p id="photo-delete-description">The {viewLabel(pendingDelete.view).toLowerCase()} photo from {displayDate(pendingDelete.date)} will be removed from this device. Any original in your gallery stays there. Your cloud copy is kept unless you choose to delete it below.</p>
+      {pendingDelete.cloud && pendingDelete.cloud.status !== "deleted" && pendingDelete.cloud.owner === cloudBackup.owner && <label className="photo-cloud-delete-choice"><input type="checkbox" checked={deleteCloudCopy} onChange={(event) => setDeleteCloudCopy(event.target.checked)} disabled={busy} />Also delete its cloud backup. It cannot be recovered from your account afterward; other devices may still keep local copies.</label>}
+      {pendingDelete.cloud && pendingDelete.cloud.owner !== cloudBackup.owner && <p>To delete this photo&apos;s cloud backup, sign in to the account that owns it.</p>}
       <div><button ref={dialogActionRef} type="button" className="text-action" onClick={() => setPendingDelete(null)} disabled={busy}>Keep photo</button><button type="button" className="danger-action" onClick={() => void deletePhoto()} disabled={busy}>Delete photo</button></div>
     </section></div>}
 

@@ -24,6 +24,7 @@ try {
  await page.goto(url);
  if(process.env.PROGRESS_TEST_PRODUCTION) {
    await page.evaluate(()=>navigator.serviceWorker.ready);
+   assert.equal(await page.evaluate(async()=>Boolean(await caches.match(new URL('cloud-photo-config.json',location.href).href))),true,'first install caches public backup configuration');
    await page.reload();
  }
  await page.getByRole('button',{name:'Progress',exact:true}).click();
@@ -80,7 +81,7 @@ try {
  assert.equal(await page.locator('.photo-card').count(),2);
  await page.getByRole('button',{name:'Delete',exact:true}).first().click();
  await page.getByRole('button',{name:'Delete photo',exact:true}).click();
- await page.getByText(/deleted from this app/).waitFor();
+ await page.getByText(/removed from this device/).waitFor();
  assert.equal(await page.locator('.photo-card').count(),1);
  await page.getByLabel('Check-in date',{exact:true}).fill('2026-09-02');
  await page.getByLabel('Add from photos',{exact:true}).setInputFiles({name:'synthetic-front-2.png',mimeType:'image/png',buffer:Buffer.from(png,'base64')});
@@ -97,6 +98,8 @@ try {
  assert.equal(backup.body.measurements.length,1);
  assert.deepEqual(backup.body.goal.targets,[67,70]);
  assert.equal(backup.photos.photos.length,2);
+ assert.equal(backup.forecastHistory.schemaVersion,1);
+ assert.ok(Array.isArray(backup.forecastHistory.snapshots));
  assert.equal(backup.snapshot.planState.phases.length,2);
  assert.equal(JSON.stringify(backup).includes('token'),false);
  await page.getByLabel('Include private photos',{exact:true}).uncheck();
@@ -119,7 +122,7 @@ try {
  await restored.getByLabel('Choose complete backup',{exact:true}).setInputFiles(backupPath);
  await restored.getByText('Ready to restore',{exact:true}).waitFor();
  await restored.getByRole('button',{name:'Restore this backup',exact:true}).click();
- await restored.getByText('Backup restored. Existing unrelated records were kept; photos stay private on this device.',{exact:true}).waitFor();
+ await restored.getByText('Backup restored. Existing unrelated records were kept. Photos save locally; enabled photo backup can also upload restored photos.',{exact:true}).waitFor();
  await restored.reload();
  assert.equal(await restored.evaluate(()=>JSON.parse(localStorage.getItem('rolling-ppl-workouts-v2')).length),fixture.workouts.length);
  await restored.getByRole('button',{name:'Plan',exact:true}).click();

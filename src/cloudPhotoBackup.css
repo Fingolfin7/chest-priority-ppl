@@ -1,0 +1,15 @@
+.cloud-photo-backup { padding:1rem; min-width:0; display:grid; gap:.7rem; background:var(--surface); border:1px solid var(--line); border-radius:11px; }
+.cloud-photo-heading { display:flex; align-items:flex-start; justify-content:space-between; gap:.8rem; }
+.cloud-photo-heading h3 { margin:0; font-size:1.05rem; }
+.cloud-photo-backup p { margin:0; color:var(--muted); font-size:.79rem; line-height:1.55; overflow-wrap:anywhere; }
+.cloud-photo-heading p { margin-top:.3rem; }
+.cloud-photo-state { flex-shrink:0; padding:.35rem .5rem; color:var(--legs-soft-ink); background:var(--legs-soft); border-radius:6px; font-size:.7rem; font-weight:700; }
+.cloud-photo-backup>button { justify-self:start; }
+.cloud-photo-actions { display:flex; align-items:center; flex-wrap:wrap; gap:.5rem; }
+.cloud-photo-existing { padding-top:.8rem; display:grid; justify-items:start; gap:.6rem; border-top:1px solid var(--line); }
+.cloud-photo-backup .cloud-photo-privacy { font-size:.72rem; }
+.cloud-photo-backup .cloud-photo-counts { color:var(--ink); font-weight:650; }
+.photo-card-details .photo-cloud-status { white-space:normal; line-height:1.4; overflow-wrap:anywhere; }
+.photo-confirm-dialog .photo-cloud-delete-choice { padding:.7rem; display:flex; align-items:flex-start; gap:.65rem; background:var(--soft-2); border-radius:7px; line-height:1.5; }
+.photo-cloud-delete-choice input { width:20px; min-height:20px; height:20px; flex-shrink:0; margin:.05rem 0 0; }
+@media(max-width:600px) { .cloud-photo-actions>button { flex:1 1 auto; } .cloud-photo-heading { flex-direction:column; } .cloud-photo-existing { justify-items:stretch; } }

@@ -1,0 +1,8 @@
+{
+  "region": "eu-north-1",
+  "userPoolId": "eu-north-1_odFaSRKkY",
+  "clientId": "2t83tq3ms287g6d1gl3sfgim22",
+  "authDomain": "https://rolling-ppl-photo-backup-978092319358.auth.eu-north-1.amazoncognito.com",
+  "apiBaseUrl": "https://154gip0nz6.execute-api.eu-north-1.amazonaws.com",
+  "redirectUri": "https://fingolfin7.github.io/chest-priority-ppl/"
+}

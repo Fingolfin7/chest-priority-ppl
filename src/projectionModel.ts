@@ -3,6 +3,22 @@ import type { HistoryMap } from './historyMigration.ts';
 
 export type OutlookPoint = { date: string; value: number; reps?: number };
 export type OutlookEstimate = { weeks: 2 | 3 | 4; date: string; value: number; low: number; high: number };
+export const PROJECTION_MODEL_VERSION = 'robust-linear-v1';
+export type ProjectionParameters = {
+  windowDays: number;
+  minimumCount: number;
+  minimumSpanDays: number;
+  staleDays: number;
+  maximum: number;
+  bandFloor: number;
+  firstDate: string;
+  latestDate: string;
+  intercept: number;
+  slopePerDay: number;
+  residualRms: number;
+  spanDays: number;
+  pointCount: number;
+};
 export type ProgressProjection = {
   status: 'ready' | 'insufficient' | 'stale' | 'unstable';
   quality: 'limited' | 'noisy' | 'steadier';
@@ -13,9 +29,10 @@ export type ProgressProjection = {
   latest: OutlookPoint | null;
   recentAverage: number | null;
   slopePerWeek: number | null;
+  parameters: ProjectionParameters | null;
   estimates: OutlookEstimate[];
 };
-type ProjectionKind = 'weight' | 'lift' | 'measurement';
+export type ProjectionKind = 'weight' | 'lift' | 'measurement';
 const DAY = 86_400_000;
 const settings = {
   weight: { window: 42, count: 6, span: 14, stale: 21, floor: .25, maximum: 500, readings: 'recorded days' },
@@ -53,7 +70,7 @@ export function projectProgress(input: OutlookPoint[], kind: ProjectionKind, tod
   const recent = used.slice(-3);
   const result: ProgressProjection = { status: 'insufficient', quality: 'limited', reason: '', points: used, count: used.length, spanDays, latest,
     recentAverage: recent.length ? recent.reduce((sum, point) => sum + point.value, 0) / recent.length : null,
-    slopePerWeek: null, estimates: [] };
+    slopePerWeek: null, parameters: null, estimates: [] };
   if (used.length < config.count || spanDays < config.span) {
     result.reason = `Needs at least ${config.count} ${config.readings} spanning ${config.span} days, within the last ${config.window} days.`;
     return result;
@@ -70,6 +87,11 @@ export function projectProgress(input: OutlookPoint[], kind: ProjectionKind, tod
   const slope = median(slopes);
   const intercept = median(xy.map(point => point.y - slope * point.x));
   const residual = Math.sqrt(xy.reduce((sum, point) => sum + (point.y - (intercept + slope * point.x)) ** 2, 0) / xy.length);
+  result.parameters = {
+    windowDays: config.window, minimumCount: config.count, minimumSpanDays: config.span, staleDays: config.stale,
+    maximum: config.maximum, bandFloor: config.floor, firstDate: used[0].date, latestDate: latest!.date,
+    intercept, slopePerDay: slope, residualRms: residual, spanDays, pointCount: used.length,
+  };
   const scale = Math.max(config.floor, residual);
   result.quality = residual > config.floor * 2 && residual > Math.abs(slope) * spanDays * .6 ? 'noisy'
     : used.length < config.count * 2 || spanDays < config.span * 2 ? 'limited' : 'steadier';

@@ -1,4 +1,4 @@
-const CACHE_NAME = "rolling-ppl-v34";
+const CACHE_NAME = "rolling-ppl-v35";
 const EXERCISES = [
   "bench", "incline-press", "chest-press-machine", "lateral-raise", "pushdown", "overhead-db-extension",
   "barbell-row", "lat-pulldown", "pullups", "rear-delt-fly", "barbell-curl", "hammer-curl",
@@ -23,6 +23,12 @@ self.addEventListener("install", (event) => {
       const builtAssets = [...html.matchAll(/(?:src|href)="(\.\/assets\/[^"]+)"/g)].map((match) => match[1]);
       await cache.addAll(builtAssets.map((url) => new Request(url, { cache: "reload" })));
     }
+    // The first page may fetch configuration before this worker takes control.
+    // Cache it on install too, without making optional backup a PWA requirement.
+    try {
+      const config = await fetch("./cloud-photo-config.json", { cache: "reload", signal: AbortSignal.timeout(5000) });
+      if (config.ok) await cache.put("./cloud-photo-config.json", config);
+    } catch { /* Training still installs when optional backup is unavailable. */ }
     await self.skipWaiting();
   })());
 });
@@ -41,6 +47,18 @@ self.addEventListener("activate", (event) => {
 self.addEventListener("fetch", (event) => {
   if (event.request.method !== "GET" || new URL(event.request.url).origin !== self.location.origin) return;
   event.respondWith((async () => {
+    if (new URL(event.request.url).pathname.endsWith("/cloud-photo-config.json")) {
+      // Public configuration changes independently of the app bundle. Retain a
+      // verified response so offline reopening still knows the backup account.
+      const cache = await caches.open(CACHE_NAME);
+      try {
+        const response = await fetch(event.request, { signal: AbortSignal.timeout(5000) });
+        if (response.ok) await cache.put(event.request, response.clone());
+        return response;
+      } catch {
+        return await cache.match(event.request) ?? Response.error();
+      }
+    }
     if (event.request.mode === "navigate") {
       try {
         const response = await fetch(event.request);

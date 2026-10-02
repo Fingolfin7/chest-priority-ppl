@@ -54,7 +54,7 @@ try {
  const outlook=page.locator('.progress-outlook');
  for(const kind of ['Weight','Lifts','Measurements']) {
    await outlook.getByRole('button',{name:kind,exact:true}).click();
-   if(kind==='Lifts') await outlook.getByRole('combobox').selectOption('Synthetic bench');
+ if(kind==='Lifts') await outlook.getByRole('combobox',{name:/^Exercise/}).selectOption('Synthetic bench');
    await outlook.locator('svg').waitFor();
    await outlook.getByRole('button',{name:'4 weeks',exact:true}).click();
    assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,kind+' overflow');

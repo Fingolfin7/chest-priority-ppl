@@ -113,7 +113,7 @@ try {
   assert.equal(head.ChecksumSHA256, checksumSha256, 'Permanent object checksum must match fixture.');
   assert.equal(head.ServerSideEncryption, 'AES256', 'Permanent object must use the expected encryption.');
   pass('Downloaded bytes, encryption, checksum and permanent lifecycle tags are correct.');
-  console.log(`Retained non-personal fixture: ${photoId} (${bytes.length} bytes). No AWS objects were deleted.`);
+  console.log(`Retained non-personal fixture: ${photoId} (${bytes.length} bytes). Confirmation cleaned up its temporary upload copy.`);
   console.log('LIMITATION: authenticated routes used direct IAM-authorized Lambda invokes with synthetic verified JWT context.');
   console.log('Hosted Cognito login, real access-token acceptance, browser CORS and deletion require separate verification.');
 } catch (error) {

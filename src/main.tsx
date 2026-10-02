@@ -1,5 +1,6 @@
 import { Fragment, StrictMode, useEffect, useMemo, useState, useSyncExternalStore, type FormEvent, type MouseEvent, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
+import { initializeCloudPhotoBackup } from "./cloudPhotoBackup";
 import {
   DEFAULT_AUTUMN_URL, defaultAutumnSettings, getAutumnAccount, listAutumnProjects,
   pushWorkoutToAutumn, signInToAutumn, type AutumnProject, type AutumnSettings,
@@ -187,7 +188,11 @@ function bestRecordedSet(sessions: SavedSession[]) {
 }
 
 function Progress({ sessions, history, phase, phases, onPlan }: { sessions: CompletedWorkout[]; history: HistoryMap; phase: TrainingPhase; phases: TrainingPhase[]; onPlan: () => void }) {
-  const [tab, setTab] = useState<"body" | "lifts" | "photos">("body");
+  const [tab, setTab] = useState<"body" | "lifts" | "photos">(() => {
+    const saved = readStored<string>("rolling-ppl-progress-tab-v1", "body");
+    return saved === "lifts" || saved === "photos" ? saved : "body";
+  });
+  useEffect(() => { storeLocal("rolling-ppl-progress-tab-v1", tab); }, [tab]);
   const recent = sessionsInLastDays(sessions, 28); const timed = recent.filter((session) => session.sync.status !== "legacy").map(workoutDurationMinutes).filter((duration) => duration > 0);
   const average = timed.length ? Math.round(timed.reduce((sum, duration) => sum + duration, 0) / timed.length) : 0;
   const liftHistory = Object.entries(history).filter(([, saved]) => saved.length > 0);
@@ -446,6 +451,7 @@ async function boot() {
   document.addEventListener("visibilitychange", () => { if (document.hidden) manager.flushPendingInputs(); });
   window.addEventListener("pagehide", () => manager.flushPendingInputs());
   createRoot(document.getElementById("root")!).render(<StrictMode><App manager={manager} /></StrictMode>);
+  void initializeCloudPhotoBackup();
   if ("serviceWorker" in navigator && import.meta.env.PROD) {
     void navigator.serviceWorker.register("./sw.js").then((registration) => {
       void registration.update();

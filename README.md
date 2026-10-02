@@ -30,19 +30,29 @@ Short-term outlooks extend recent bodyweight, top working weight and tape trends
 
 Progress photos are compressed and kept in the dedicated `rolling-ppl-progress-photos` IndexedDB database. Captures inside the app are not written to the phone gallery. Imported originals remain wherever selected. Camera capture requires HTTPS or localhost and permission. The app does not estimate measurements or body fat from photos. Browser storage is private to this site/browser profile, not an encrypted vault; clearing site data or losing the device can lose the local copy.
 
-**Data → Backup** downloads workouts, active drafts, plans, body records, goals, measurements and optionally photos. Credentials and pairing keys are excluded. Keep the file outside this browser; the displayed timestamp means a download started, not that an external backup was verified. **Data → Restore** validates and merges complete backups or workout-history files, preserving unrelated records. Matching workout IDs use the backup copy; body records use their latest saved version. An existing active workout stays intact; restoring into an empty browser recovers the saved draft. **Data → Workout export** provides workout-only JSON/CSV transfers.
+**Progress → Photos → Photo backup** offers optional private cloud backup. Sign in once and enable backup; new photos save locally first and upload automatically while the app is open and online. Each photo shows **Backed up** or **Backup pending**. Existing device photos need one explicit **Back up existing photos** action. After clearing browser data or changing phones, sign in to the same account and choose **Recover photos**. Removing a device copy keeps its cloud backup unless you explicitly select cloud deletion. Pausing or signing out keeps local copies. An upload still pending cannot be recovered from the cloud.
 
-Independent weigh-ins, tape measurements, goals, workouts and training phases use device sync. Photos remain private to each browser and travel only through explicit backups. Body edits and deletions merge by record identity and saved timestamp. Update both paired browsers before exchanging this expanded data.
+Cloud photo backup uses separate AWS S3, Cognito and serverless API resources; workouts remain local with device sync. The public configuration contains no AWS credentials. See [deployment and recovery instructions](infra/photo-backup/README.md). Cloud backup defaults to 500 photos and 1 GiB per account and is metered by AWS usage; local exports remain useful as a separate copy.
+
+When you open an outlook, the app saves a ready forecast at most once a week per metric. **Compare with forecast from** shows that fixed original forecast alongside recorded results and the latest projection. New readings never rewrite the original. Forecasts start when this feature is used; the app does not invent predictions for earlier dates. Saved forecasts live locally and are included in complete backups.
+
+**Data → Backup** downloads workouts, active drafts, plans, body records, goals, measurements, saved forecasts and optionally photos. Credentials and pairing keys are excluded. Keep the file outside this browser; the displayed timestamp means a download started, not that an external backup was verified. **Data → Restore** validates and merges complete backups or workout-history files, preserving unrelated records. Matching workout IDs use the backup copy; body records use their latest saved version. An existing active workout stays intact; restoring into an empty browser recovers the saved draft. **Data → Workout export** provides workout-only JSON/CSV transfers.
+
+Independent weigh-ins, tape measurements, goals, workouts and training phases use device sync. Photos use explicit file backups or optional account-based cloud backup; they are not sent through device sync. Saved forecasts travel through complete backups. Body edits and deletions merge by record identity and saved timestamp. Update both paired browsers before exchanging this expanded data.
 
 Complete backups have a 300 MiB limit; photo backups support up to 1,000 photos and 256 MiB per file. For larger collections, download a records backup and export photo batches by view/date from **Progress → Photos → Storage and photo backups**. Individual photos can be downloaded from their preview. A records backup cannot recover photos.
 
 **Plan** supports whole programmes: Push/Pull/Legs, Upper/Lower, Full body, or your own ordered sequence of 1–12 named workouts. Edit exercises and prescriptions, then save a named phase. Prior phases remain available. Workouts retain their starting programme, sequence and prescriptions; later changes do not rewrite completed sessions or change an active session's plan.
 
-Everything runs in the offline-capable PWA with no new account, hosted database or object-storage service. Install from Chrome on Android or Safari's Add to Home Screen on iPhone. Backups remain necessary even when persistent browser storage is granted.
+Training and body tracking run in the offline-capable PWA without an account. Only optional cloud photo backup requires signing in. Install from Chrome on Android or Safari's Add to Home Screen on iPhone. Backups remain necessary even when persistent browser storage is granted.
 
 ## Local development
 
 Browser regression scripts use isolated Chrome contexts. Run `scripts/test-body-progress.mjs` for logging, camera cleanup and backup/restore; `scripts/test-progress-outlooks.mjs` for synthetic outlooks and a custom programme. Set `PLAYWRIGHT_MODULE` to an installed Playwright module URL and `PROGRESS_TEST_URL` to the dev server (default port 4187). For a built preview, `PROGRESS_TEST_PRODUCTION=1` adds offline restoration checks to the body-progress script. Test artifacts stay under ignored `outputs/`.
+
+`scripts/test-cloud-photo-backup.mjs` exercises sign-in, upload retry, recovery, account isolation and deletion with mocked cloud services and synthetic photos. It never uses a personal browser profile or uploads real images. The backend's `test-live.mjs` verifies deployed AWS storage separately. Local development needs a matching callback/origin configuration to use live cloud sign-in; the checked-in config targets the published PWA.
+
+`scripts/test-forecast-history.mjs` checks original/current/recorded curves, immutable backup merges, reload persistence, and saved forecasts with sparse or deleted current history at desktop and phone widths.
 
 ```bash
 npm install

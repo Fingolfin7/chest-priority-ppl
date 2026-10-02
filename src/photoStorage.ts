@@ -10,7 +10,16 @@ export type ProgressPhoto = {
   width: number;
   height: number;
   createdAt: string;
+  cloud?: { owner: string; status: "pending" | "backed-up" | "deleted"; checksumSha256?: string };
 };
+
+// The backup service supplies an account only after the user enables backup.
+// Capture the association when a save starts, so changing accounts mid-save
+// cannot move a private photo to the next account.
+let newPhotoCloudOwner: () => string | undefined = () => undefined;
+export function configurePhotoCloudOwner(provider: () => string | undefined) {
+  newPhotoCloudOwner = provider;
+}
 
 export type PhotoBackupEntry = {
   id: string;
@@ -146,6 +155,7 @@ export async function saveProgressPhoto(input: {
   date: string;
   view: ProgressPhotoView;
 }): Promise<ProgressPhoto> {
+  const owner = newPhotoCloudOwner();
   if (!isValidDate(input.date)) throw new PhotoStorageError("Choose a valid photo date.");
   if (!isProgressPhotoView(input.view)) throw new PhotoStorageError("Choose front, side, or back view.");
   if (input.blob.size > MAX_INPUT_IMAGE_BYTES) throw new PhotoStorageError("Choose an image smaller than 40 MiB.");
@@ -166,6 +176,7 @@ export async function saveProgressPhoto(input: {
     width: variants.width,
     height: variants.height,
     createdAt: new Date().toISOString(),
+    ...(owner ? { cloud: { owner, status: "pending" as const } } : {}),
   };
   await putPhotoRecords([record]);
   dispatchPhotoChange();
@@ -191,6 +202,36 @@ async function putPhotoRecords(records: ProgressPhoto[]) {
   } finally {
     database.close();
   }
+}
+
+/** Update cloud bookkeeping without replacing or deleting the local image. */
+export async function updateProgressPhotoCloud(id: string, cloud: ProgressPhoto["cloud"]): Promise<void> {
+  const database = await openPhotoDatabase();
+  try {
+    await transactionPromise(database, "readwrite", (store) => {
+      const request = store.get(id);
+      request.onsuccess = () => {
+        const photo = request.result as ProgressPhoto | undefined;
+        if (photo) store.put({ ...photo, cloud });
+      };
+    });
+  } finally {
+    database.close();
+  }
+  dispatchPhotoChange();
+}
+
+/** Restore a verified cloud original by ID; preserve any existing local record. */
+export async function restoreCloudProgressPhoto(input: Omit<ProgressPhoto, "thumbnail" | "width" | "height">): Promise<void> {
+  if (!/^[A-Za-z0-9_-]{1,128}$/.test(input.id) || !isValidDate(input.date) || !isProgressPhotoView(input.view)) {
+    throw new PhotoStorageError("The cloud photo has invalid details.");
+  }
+  if (!PHOTO_MIME_TYPES.includes(input.mimeType) || input.blob.size > PHOTO_BACKUP_MAX_IMAGE_BYTES || input.blob.type !== input.mimeType) {
+    throw new PhotoStorageError("The cloud photo has an unsupported image.");
+  }
+  const thumbnail = await createThumbnail(input.blob);
+  await mergePhotoRecords([{ ...input, thumbnail: thumbnail.blob, width: thumbnail.width, height: thumbnail.height }]);
+  dispatchPhotoChange();
 }
 
 async function mergePhotoRecords(records: ProgressPhoto[]) {
@@ -333,6 +374,7 @@ export async function exportProgressPhotos(options: {
 
 /** Validates every entry and prepares all thumbnails before one atomic merge by ID. */
 export async function importProgressPhotos(value: unknown): Promise<number> {
+  const owner = newPhotoCloudOwner();
   const backup = parseProgressPhotoBackup(value);
   const records: ProgressPhoto[] = [];
   for (const entry of backup.photos) {
@@ -348,6 +390,7 @@ export async function importProgressPhotos(value: unknown): Promise<number> {
       width: thumbnail.width,
       height: thumbnail.height,
       createdAt: new Date().toISOString(),
+      ...(owner ? { cloud: { owner, status: "pending" as const } } : {}),
     });
   }
   await mergePhotoRecords(records);

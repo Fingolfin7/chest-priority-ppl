@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { webcrypto } from "node:crypto";
+import { getCloudPhotoBackupState, initializeCloudPhotoBackup, photoChecksum, recoverCloudPhotos, removePhotoWithCloudChoice, syncCloudPhotos } from "../src/cloudPhotoBackup.ts";
 import {
   deleteProgressPhoto,
+  configurePhotoCloudOwner,
   exportProgressPhotos,
   getProgressPhotos,
   importProgressPhotos,
@@ -10,6 +12,8 @@ import {
   PHOTO_BACKUP_MAX_IMAGE_BYTES,
   PHOTO_PROGRESS_CHANGE_EVENT,
   saveProgressPhoto,
+  restoreCloudProgressPhoto,
+  updateProgressPhotoCloud,
 } from "../src/photoStorage.ts";
 
 const validPhoto = {
@@ -40,7 +44,7 @@ test("photo backup parsing validates IDs, labels, MIME signatures, and image lim
 
 test("saving compresses into private IndexedDB, emits change events, and exports restorable photos", async () => {
   const previous = new Map();
-  const installedNames = ["indexedDB", "createImageBitmap", "document", "window", "crypto"];
+  const installedNames = ["indexedDB", "createImageBitmap", "document", "window", "crypto", "localStorage", "sessionStorage", "fetch", "navigator"];
   for (const name of installedNames) previous.set(name, Object.getOwnPropertyDescriptor(globalThis, name));
 
   const databases = new Map();
@@ -62,6 +66,10 @@ test("saving compresses into private IndexedDB, emits change events, and exports
 
     getAll() {
       return this.transaction.request(() => [...this.database.stores.get(this.name).values()]);
+    }
+
+    get(key) {
+      return this.transaction.request(() => this.database.stores.get(this.name).get(key));
     }
 
     getAllKeys() {
@@ -172,6 +180,7 @@ test("saving compresses into private IndexedDB, emits change events, and exports
     configurable: true,
     writable: true,
     value: {
+      addEventListener() {},
       createElement(name) {
         assert.equal(name, "canvas");
         const canvas = {
@@ -227,7 +236,116 @@ test("saving compresses into private IndexedDB, emits change events, and exports
     await deleteProgressPhoto(saved.id);
     assert.equal(changeEvents, 4);
     assert.deepEqual((await getProgressPhotos()).map((photo) => photo.id), [restored.id]);
+
+    // Existing v1 records stay unassociated. Cloud bookkeeping preserves originals.
+    const priorRecord = (await getProgressPhotos())[0];
+    assert.equal(priorRecord.cloud, undefined);
+    await updateProgressPhotoCloud(restored.id, { owner: "pool:account-a", status: "pending" });
+    const associated = (await getProgressPhotos())[0];
+    assert.equal(associated.blob, priorRecord.blob);
+    assert.equal(associated.thumbnail, priorRecord.thumbnail);
+    assert.deepEqual(associated.cloud, { owner: "pool:account-a", status: "pending" });
+    const localBackup = await exportProgressPhotos();
+    assert.equal("cloud" in localBackup.photos[0], false, "portable photo backup does not carry account bindings");
+    configurePhotoCloudOwner(() => "pool:account-b");
+    await importProgressPhotos(localBackup);
+    assert.equal((await getProgressPhotos())[0].cloud.owner, "pool:account-a", "import keeps the existing account association");
+    const imported = { ...validPhoto, id: "account_b_import" };
+    await importProgressPhotos(backup([imported]));
+    assert.equal((await getProgressPhotos()).find((photo) => photo.id === imported.id).cloud.owner, "pool:account-b");
+
+    let owner = "pool:account-a";
+    configurePhotoCloudOwner(() => owner);
+    const saving = saveProgressPhoto({ blob: new Blob(["image"], { type: "image/jpeg" }), date: "2026-09-23", view: "back" });
+    owner = "pool:account-b";
+    assert.equal((await saving).cloud.owner, "pool:account-a", "account captured before asynchronous image processing");
+    await restoreCloudProgressPhoto({ ...associated, date: "2026-09-24", cloud: { owner: "pool:account-b", status: "backed-up" } });
+    assert.equal((await getProgressPhotos()).find((photo) => photo.id === restored.id).cloud.owner, "pool:account-a", "recovery does not overwrite an existing local photo or owner");
+
+    // Exercise the actual worker against a deterministic backend, including
+    // failure before confirm, durable tombstones, and recovery verification.
+    const account = "pool:account-a";
+    const pendingPhoto = (await getProgressPhotos()).find((photo) => photo.cloud?.owner === account && photo.id !== restored.id);
+    const memoryStorage = () => {
+      const values = new Map();
+      return { getItem: (key) => values.get(key) ?? null, setItem: (key, value) => values.set(key, value), removeItem: (key) => values.delete(key) };
+    };
+    const localStorage = memoryStorage();
+    localStorage.setItem("rolling-ppl:cloud-photo-session", JSON.stringify({ accessToken: "access-account-a", owner: account, expiresAt: Date.now() + 3600_000 }));
+    localStorage.setItem("rolling-ppl:cloud-photo-preferences", JSON.stringify({ enabled: [account], removed: {}, deletions: {} }));
+    Object.defineProperty(globalThis, "localStorage", { configurable: true, value: localStorage });
+    Object.defineProperty(globalThis, "sessionStorage", { configurable: true, value: memoryStorage() });
+    const network = { onLine: true };
+    Object.defineProperty(globalThis, "navigator", { configurable: true, value: network });
+    browserWindow.location = { href: "https://app.example.com/", origin: "https://app.example.com" };
+    browserWindow.history = { replaceState() {} };
+    const restoredBlob = new Blob([Uint8Array.of(0xff, 0xd8, 0xff, 0x00)], { type: "image/jpeg" });
+    const cloudRecord = { id: "cloud_only", date: "2026-09-25", view: "front", mimeType: "image/jpeg", size: restoredBlob.size, checksumSha256: await photoChecksum(restoredBlob), width: 4000, height: 3000, createdAt: "2026-09-25T12:00:00.000Z" };
+    const remotePhotos = new Map([[cloudRecord.id, cloudRecord]]);
+    const tombstones = [{ id: restored.id, deletedAt: "2026-09-24T12:00:00.000Z" }];
+    const preparations = [];
+    let uploadFails = true;
+    let confirmations = 0;
+    const json = (value) => new Response(JSON.stringify(value), { headers: { "Content-Type": "application/json" } });
+    Object.defineProperty(globalThis, "fetch", { configurable: true, value: async (input, options = {}) => {
+      const url = String(input);
+      if (url === "/cloud-photo-config.json") return json({ region: "eu-central-1", userPoolId: "pool", clientId: "client", authDomain: "https://auth.example.com", apiBaseUrl: "https://api.example.com", redirectUri: "https://app.example.com/" });
+      if (url === "https://api.example.com/photos") return json({ photos: [...remotePhotos.values()], tombstones });
+      if (url.endsWith("/upload")) {
+        const id = url.split("/").at(-2);
+        const metadata = { id, ...JSON.parse(options.body) };
+        preparations.push(id);
+        remotePhotos.set(id, metadata);
+        return json({ uploadId: "intent", url: "https://upload.example.com", fields: { key: "private" } });
+      }
+      if (url === "https://upload.example.com") return new Response(null, { status: uploadFails ? 503 : 204 });
+      if (url.endsWith("/confirm")) { confirmations++; return json({ photo: remotePhotos.get(url.split("/").at(-2)) }); }
+      if (url.endsWith("/download")) return json({ url: "https://download.example.com", photo: cloudRecord });
+      if (url === "https://download.example.com") return new Response(restoredBlob);
+      if (options.method === "DELETE") {
+        const id = url.split("/").at(-1);
+        remotePhotos.delete(id);
+        tombstones.push({ id, deletedAt: "2026-09-26T12:00:00.000Z" });
+        return json(tombstones.at(-1));
+      }
+      throw new Error(`Unexpected cloud request: ${url}`);
+    } });
+    await initializeCloudPhotoBackup();
+    assert.match(getCloudPhotoBackupState().error, /could not upload/);
+    assert.equal(confirmations, 0, "failed object upload never confirms or claims success");
+    assert.equal((await getProgressPhotos()).find((photo) => photo.id === pendingPhoto.id).cloud.status, "pending");
+    assert.equal((await getProgressPhotos()).find((photo) => photo.id === pendingPhoto.id).blob, pendingPhoto.blob, "upload failure keeps the local original");
+    assert.equal((await getProgressPhotos()).find((photo) => photo.id === restored.id).cloud.status, "deleted", "remote tombstone suppresses stale browser upload");
+    // A pending S3 object does not appear in the backend's active manifest.
+    remotePhotos.delete(pendingPhoto.id);
+    uploadFails = false;
+    await syncCloudPhotos();
+    assert.equal(confirmations, 1);
+    assert.deepEqual([...new Set(preparations)], [pendingPhoto.id], "another account's photos and tombstoned photos never upload");
+    assert.equal((await getProgressPhotos()).find((photo) => photo.id === pendingPhoto.id).cloud.status, "backed-up");
+    assert.equal(getCloudPhotoBackupState().recoverableCount, 1);
+    await recoverCloudPhotos();
+    const recovered = (await getProgressPhotos()).find((photo) => photo.id === cloudRecord.id);
+    assert.equal(await photoChecksum(recovered.blob), cloudRecord.checksumSha256);
+    assert.equal(recovered.cloud.owner, account);
+    assert.equal(recovered.cloud.checksumSha256, cloudRecord.checksumSha256, "recovery records its verified checksum");
+    assert.equal((await getProgressPhotos()).find((photo) => photo.id === pendingPhoto.id).cloud.checksumSha256, await photoChecksum(pendingPhoto.blob));
+    const originalArrayBuffer = Blob.prototype.arrayBuffer;
+    let originalReads = 0;
+    Blob.prototype.arrayBuffer = function () { originalReads++; return originalArrayBuffer.call(this); };
+    try { await syncCloudPhotos(); } finally { Blob.prototype.arrayBuffer = originalArrayBuffer; }
+    assert.equal(originalReads, 0, "routine reconciliation does not rehash confirmed immutable originals");
+    network.onLine = false;
+    await removePhotoWithCloudChoice(recovered, true);
+    assert.equal((await getProgressPhotos()).some((photo) => photo.id === recovered.id), false);
+    assert.deepEqual(JSON.parse(localStorage.getItem("rolling-ppl:cloud-photo-preferences")).deletions[account], [recovered.id], "offline cloud deletion is persisted before local removal");
+    network.onLine = true;
+    await syncCloudPhotos();
+    assert.equal(remotePhotos.has(recovered.id), false);
+    assert.deepEqual(JSON.parse(localStorage.getItem("rolling-ppl:cloud-photo-preferences")).deletions[account], []);
+    assert.equal(getCloudPhotoBackupState().deletionCount, 0);
   } finally {
+    configurePhotoCloudOwner(() => undefined);
     for (const [name, descriptor] of previous) {
       if (descriptor) Object.defineProperty(globalThis, name, descriptor);
       else delete globalThis[name];
