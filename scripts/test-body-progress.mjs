@@ -36,14 +36,17 @@ try {
  await page.getByLabel('Waist (cm)',{exact:true}).fill('78');
  await page.getByRole('button',{name:'Save measurements',exact:true}).click();
  await page.getByText('Measurements saved on this device.',{exact:true}).waitFor();
- await page.getByLabel('Milestone weights (kg, separated by commas)',{exact:true}).fill('67, 70');
- await page.getByRole('button',{name:'Save milestones',exact:true}).click();
- await page.getByText('Weight milestones saved.',{exact:true}).waitFor();
+ await page.getByRole('button',{name:'Set a goal',exact:true}).click();
+ await page.getByLabel('Goal weight (kg)',{exact:true}).fill('70');
+ await page.getByRole('button',{name:'67 kg',exact:true}).click();
+ await page.getByRole('button',{name:'Save goal',exact:true}).click();
+ await page.getByText('Goal saved. Milestones update automatically.',{exact:true}).waitFor();
  await page.screenshot({path:`${output}/body-mobile.png`,fullPage:true});
  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,'body mobile overflow');
  await page.getByRole('button',{name:'Plan',exact:true}).click();
- await page.getByRole('button',{name:'Edit as a new phase',exact:true}).click();
- await page.getByLabel('Phase name',{exact:true}).fill('Build toward 70 kg');
+ await page.getByRole('button',{name:'Start next phase',exact:true}).click();
+ await page.getByLabel('Phase focus',{exact:true}).fill('Build toward 70 kg');
+ await page.getByRole('button',{name:'Review workouts',exact:true}).click();
  await page.getByLabel('Sets',{exact:true}).first().fill('2');
  await page.getByRole('button',{name:'Save and start phase',exact:true}).click();
  await page.getByText('New phase saved. It applies to your next workout.',{exact:true}).waitFor();
@@ -82,7 +85,7 @@ try {
  await page.getByLabel('Check-in date',{exact:true}).fill('2026-09-02');
  await page.getByLabel('Add from photos',{exact:true}).setInputFiles({name:'synthetic-front-2.png',mimeType:'image/png',buffer:Buffer.from(png,'base64')});
  await page.getByText(/Front photo added for/).waitFor();
- await page.locator('.complete-backup summary').click();
+ await page.locator('.export-menu > summary').click();
  const downloadEvent=page.waitForEvent('download');
  await page.getByRole('button',{name:'Download complete backup',exact:true}).click();
  const download=await downloadEvent;
@@ -111,17 +114,18 @@ try {
  const restored=await restoredContext.newPage();
  restored.on('pageerror',error=>errors.push(error.message));
  await restored.goto(url);
- await restored.locator('.complete-backup summary').click();
- await restored.getByLabel('Choose a backup to restore',{exact:true}).setInputFiles(backupPath);
+ await restored.locator('.export-menu > summary').click();
+ await restored.getByRole('button',{name:'Restore',exact:true}).click();
+ await restored.getByLabel('Choose complete backup',{exact:true}).setInputFiles(backupPath);
  await restored.getByText('Ready to restore',{exact:true}).waitFor();
  await restored.getByRole('button',{name:'Restore this backup',exact:true}).click();
- await restored.getByText('Backup restored. Existing unrelated records were kept. Photos remain private to this browser.',{exact:true}).waitFor();
+ await restored.getByText('Backup restored. Existing unrelated records were kept; photos stay private on this device.',{exact:true}).waitFor();
  await restored.reload();
  assert.equal(await restored.evaluate(()=>JSON.parse(localStorage.getItem('rolling-ppl-workouts-v2')).length),fixture.workouts.length);
  await restored.getByRole('button',{name:'Plan',exact:true}).click();
  await restored.getByRole('heading',{name:'Build toward 70 kg',exact:true}).waitFor();
  await restored.getByRole('button',{name:'Progress',exact:true}).click();
- assert.equal(await restored.getByLabel('Milestone weights (kg, separated by commas)',{exact:true}).inputValue(),'67, 70');
+ await restored.getByRole('heading',{name:'Building toward 70 kg',exact:true}).waitFor();
  await restored.getByRole('tab',{name:'Photos',exact:true}).click();
  await restored.getByRole('combobox',{name:/Earlier photo/}).waitFor();
  assert.equal(await restored.locator('.photo-card').count(),2);
@@ -138,7 +142,7 @@ try {
  for(const width of [320,1280]) {
    await restored.setViewportSize({width,height:900});
    assert.equal(await restored.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,`photos overflow ${width}`);
-   await restored.getByRole('tab',{name:'Body',exact:true}).click();
+   await restored.getByRole('tab',{name:'Overview',exact:true}).click();
    assert.equal(await restored.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,`body overflow ${width}`);
    await restored.getByRole('button',{name:'Plan',exact:true}).click();
    assert.equal(await restored.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,`plan overflow ${width}`);
@@ -147,7 +151,7 @@ try {
  }
  await restored.getByRole('button',{name:'Switch to dark mode',exact:true}).click();
  await restored.screenshot({path:`${output}/photos-desktop-dark.png`,fullPage:true});
- await restored.getByRole('tab',{name:'Body',exact:true}).click();
+ await restored.getByRole('tab',{name:'Overview',exact:true}).click();
  await restored.screenshot({path:`${output}/body-desktop-dark.png`,fullPage:true});
  assert.deepEqual(errors,[]);
  console.log(`PASS: body, plans, camera cleanup, photo comparison/delete, backup restore, responsive views; ${fixture.workouts.length} imported workouts.`);

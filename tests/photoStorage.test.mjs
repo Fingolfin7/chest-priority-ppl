@@ -209,11 +209,15 @@ test("saving compresses into private IndexedDB, emits change events, and exports
     const exported = await exportProgressPhotos();
     assert.equal(exported.photos.length, 1);
     assert.equal(exported.photos[0].data, "/9j/AA==");
+    assert.equal((await exportProgressPhotos({ view: "side" })).photos.length, 0);
+    await assert.rejects(exportProgressPhotos({ fromDate: "2026-09-23", throughDate: "2026-09-22" }), /start date must be before the end date/i);
 
     const restored = { ...validPhoto, id: "restored_2", date: "2026-09-22", view: "side" };
     assert.equal(await importProgressPhotos(backup([restored])), 1);
     assert.equal(changeEvents, 2);
     assert.equal((await getProgressPhotos()).length, 2);
+    const sideRange = await exportProgressPhotos({ view: "side", fromDate: "2026-09-22", throughDate: "2026-09-22" });
+    assert.deepEqual(sideRange.photos.map((photo) => photo.id), [restored.id]);
 
     const duplicate = { ...restored, date: "2026-09-23" };
     assert.equal(await importProgressPhotos(backup([duplicate])), 1);

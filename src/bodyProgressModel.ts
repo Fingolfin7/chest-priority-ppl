@@ -4,7 +4,9 @@ export type WeighIn = { id: string; date: string; kg: number; note: string; upda
 export const MEASUREMENT_KEYS = ["chest", "waist", "arms", "thighs"] as const;
 export type MeasurementKey = typeof MEASUREMENT_KEYS[number];
 export type BodyMeasurement = { id: string; date: string; note: string; updatedAt: string } & Partial<Record<MeasurementKey, number>>;
-export type WeightGoal = { targets: number[]; sustainedDays: number; updatedAt: string };
+// sustainedDays is retained for older backups. Milestones use the mean of actual
+// readings in seven calendar days, with at least three recorded days by default.
+export type WeightGoal = { targets: number[]; sustainedDays: number; minimumReadings?: number; updatedAt: string };
 export type BodyDeletion = { id: string; kind: "weight" | "measurement"; deletedAt: string };
 export type BodyProgressData = { schemaVersion: 1; weighIns: WeighIn[]; measurements: BodyMeasurement[]; goal: WeightGoal; deletions: BodyDeletion[] };
 export type WeightReading = { date: string; value: number; source: "weigh-in" | "workout"; id: string };
@@ -63,12 +65,13 @@ export function parseBodyProgress(value: unknown, today = localDay()): BodyProgr
   const targets = list(goal.targets).map((value) => readingNumber(value, "Target weight (kg)", 500));
   if (targets.length > 20 || new Set(targets).size !== targets.length) throw new Error("Choose up to 20 different milestone weights.");
   if (typeof goal.sustainedDays !== "number" || !Number.isInteger(goal.sustainedDays) || goal.sustainedDays < 2 || goal.sustainedDays > 30) throw new Error("Sustained days must be a whole number from 2 to 30.");
+  if (goal.minimumReadings !== undefined && (typeof goal.minimumReadings !== "number" || !Number.isInteger(goal.minimumReadings) || goal.minimumReadings < 3 || goal.minimumReadings > 7)) throw new Error("Minimum readings must be a whole number from 3 to 7.");
   const deletions = list(data.deletions ?? []).map((value): BodyDeletion => {
     const item = object(value);
     if (item.kind !== "weight" && item.kind !== "measurement") throw new Error("Invalid body progress deletion.");
     return { id: identifier(item.id), kind: item.kind, deletedAt: timestamp(item.deletedAt) };
   });
-  return { schemaVersion: 1, weighIns, measurements, goal: { targets: [...targets].sort((a, b) => a - b), sustainedDays: goal.sustainedDays, updatedAt: timestamp(goal.updatedAt) }, deletions };
+  return { schemaVersion: 1, weighIns, measurements, goal: { targets: [...targets].sort((a, b) => a - b), sustainedDays: goal.sustainedDays, ...(goal.minimumReadings === undefined ? {} : { minimumReadings: goal.minimumReadings as number }), updatedAt: timestamp(goal.updatedAt) }, deletions };
 }
 export function parseBodyNumber(value: string): number {
   return value.trim() ? Number(value.trim().replace(",", ".")) : NaN;
@@ -102,19 +105,23 @@ export function recentWeightAverages(readings: WeightReading[], today = localDay
   return { recent: average(end - 6, end), previous: average(end - 13, end - 7) };
 }
 export function weightMilestones(readings: WeightReading[], goal: WeightGoal) {
-  const ordered = [...readings].sort((a, b) => a.date.localeCompare(b.date));
+  // Callers normally use combineWeightReadings; defensively count each day once.
+  const ordered = [...new Map(readings.map((reading) => [reading.date, reading])).values()].sort((a, b) => a.date.localeCompare(b.date));
+  const minimum = goal.minimumReadings ?? 3;
   return goal.targets.map((target) => {
     let firstReached: string | null = null;
     let sustained: string | null = null;
     let streak = 0;
-    let previous: string | null = null;
-    for (const reading of ordered) {
-      if (reading.value >= target) {
-        firstReached ??= reading.date;
-        streak = previous && calendarDayNumber(reading.date) - calendarDayNumber(previous) === 1 ? streak + 1 : 1;
-        if (streak >= goal.sustainedDays) sustained ??= reading.date;
-      } else streak = 0;
-      previous = reading.date;
+    let windowStart = 0;
+    let sum = 0;
+    for (let index = 0; index < ordered.length; index++) {
+      const reading = ordered[index];
+      if (reading.value >= target) firstReached ??= reading.date;
+      sum += reading.value;
+      while (calendarDayNumber(ordered[windowStart].date) < calendarDayNumber(reading.date) - 6) sum -= ordered[windowStart++].value;
+      const count = index - windowStart + 1;
+      streak = count >= minimum && sum / count >= target ? count : 0;
+      if (streak) sustained ??= reading.date;
     }
     return { target, firstReached, sustained, currentStreak: streak };
   });
@@ -146,7 +153,10 @@ function openDatabase(): Promise<IDBDatabase> {
     request.onblocked = () => reject(new Error("Close other app tabs and try body progress again."));
   });
 }
-export async function exportBodyProgress(): Promise<BodyProgressData> {
+type BodySyncStore = { read: () => Promise<BodyProgressData>; save: (data: BodyProgressData) => Promise<void> };
+let syncStore: BodySyncStore | undefined;
+
+async function loadLocalBodyProgress(): Promise<BodyProgressData> {
   const db = await openDatabase();
   try {
     return await new Promise((resolve, reject) => {
@@ -158,7 +168,7 @@ export async function exportBodyProgress(): Promise<BodyProgressData> {
     });
   } finally { db.close(); }
 }
-export async function saveBodyProgress(value: BodyProgressData): Promise<void> {
+async function saveLocalBodyProgress(value: BodyProgressData): Promise<void> {
   const data = parseBodyProgress(value);
   const db = await openDatabase();
   try {
@@ -175,9 +185,76 @@ export async function saveBodyProgress(value: BodyProgressData): Promise<void> {
       tx.onabort = () => reject(new Error("Body progress was not saved. Your form is still available; try again."));
     });
   } finally { db.close(); }
-  window.dispatchEvent(new Event(BODY_PROGRESS_EVENT));
+  if (typeof window !== "undefined") window.dispatchEvent(new Event(BODY_PROGRESS_EVENT));
+}
+export async function exportBodyProgress(): Promise<BodyProgressData> {
+  return syncStore ? syncStore.read() : loadLocalBodyProgress();
+}
+export async function saveBodyProgress(value: BodyProgressData): Promise<void> {
+  const data = parseBodyProgress(value);
+  if (syncStore) await syncStore.save(data);
+  else await saveLocalBodyProgress(data);
 }
 export async function importBodyProgress(value: unknown): Promise<void> {
   const incoming = parseBodyProgress(value);
   await saveBodyProgress(incoming);
+}
+
+// Attach once after the manager initializes. The old independent IndexedDB
+// database remains a recoverable mirror, while the peer document owns body data.
+// Mirroring never feeds manager updates back through BODY_PROGRESS_EVENT.
+export async function attachBodyProgressSync(manager: {
+  getSnapshot: () => { bodyProgress?: BodyProgressData };
+  set: (key: "bodyProgress", value: BodyProgressData) => void;
+  subscribe: (listener: () => void) => () => void;
+  saveNow: () => Promise<void>;
+}): Promise<() => void> {
+  let queue: Promise<void> = Promise.resolve();
+  let failure: unknown;
+  let lastBody = "";
+  const enqueue = (work: () => Promise<void>) => {
+    const result = queue.then(async () => { await work(); failure = undefined; });
+    queue = result.catch((error) => { failure = error; });
+    return result;
+  };
+  const mergeIntoManager = (local: BodyProgressData) => {
+    const merged = mergeBodyProgress(manager.getSnapshot().bodyProgress ?? emptyBodyProgress(), local);
+    if (JSON.stringify(manager.getSnapshot().bodyProgress) !== JSON.stringify(merged)) manager.set("bodyProgress", merged);
+    return merged;
+  };
+  const incoming = () => {
+    const body = manager.getSnapshot().bodyProgress;
+    if (!body || JSON.stringify(body) === lastBody) return;
+    lastBody = JSON.stringify(body);
+    void enqueue(async () => { await manager.saveNow(); await saveLocalBodyProgress(body); }).catch(() => {});
+  };
+  const unsubscribe = manager.subscribe(incoming);
+  const bridge: BodySyncStore = {
+    read: async () => {
+      // Include mirror writes added while a previous write was in flight.
+      for (;;) { const pending = queue; await pending; if (pending === queue) break; }
+      if (failure) throw failure;
+      await manager.saveNow();
+      return structuredClone(manager.getSnapshot().bodyProgress ?? emptyBodyProgress());
+    },
+    save: (data) => enqueue(async () => {
+      const merged = mergeIntoManager(mergeBodyProgress(await loadLocalBodyProgress(), data));
+      await manager.saveNow();
+      await saveLocalBodyProgress(merged);
+      failure = undefined;
+    }),
+  };
+  syncStore = bridge;
+  try {
+    await enqueue(async () => {
+      const merged = mergeIntoManager(await loadLocalBodyProgress());
+      await manager.saveNow();
+      await saveLocalBodyProgress(merged);
+    });
+  } catch (error) {
+    unsubscribe();
+    if (syncStore === bridge) syncStore = undefined;
+    throw error;
+  }
+  return () => { unsubscribe(); if (syncStore === bridge) syncStore = undefined; };
 }

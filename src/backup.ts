@@ -1,6 +1,6 @@
 import { canonicalExerciseName, type HistoryMap, type SetEntry } from "./historyMigration.ts";
-import type { CompletedExercise, CompletedWorkout, WorkoutKey, WorkoutSync } from "./sessionModel";
-import { validateWorkoutTraining } from "./planModel.ts";
+import { isWorkoutKey, type CompletedExercise, type CompletedWorkout, type WorkoutKey, type WorkoutSync } from "./sessionModel.ts";
+import { validateWorkoutTraining, type WorkoutTraining } from "./planModel.ts";
 
 export type ExportSession = {
   exercise: string;
@@ -14,20 +14,15 @@ export type ParsedBackup = {
   workouts: CompletedWorkout[];
 };
 
-const WORKOUT_KEYS: WorkoutKey[] = ["push", "pull", "legs"];
 const SYNC_STATUSES: WorkoutSync["status"][] = ["unsynced", "syncing", "synced", "error", "legacy"];
 const CSV_HEADERS = [
   "exercise", "session_date", "session_timestamp", "session_id", "set_number", "load", "reps",
   "workout_id", "workout", "workout_started_at", "workout_ended_at", "bodyweight", "session_note",
-  "exercise_priority", "load_suffix",
+  "exercise_priority", "load_suffix", "training_snapshot",
 ];
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function isWorkoutKey(value: unknown): value is WorkoutKey {
-  return typeof value === "string" && WORKOUT_KEYS.includes(value as WorkoutKey);
 }
 
 function normalizeBodyweight(value: unknown, context: string) {
@@ -89,6 +84,7 @@ function normalizeWorkout(value: unknown, position: number): CompletedWorkout {
     ? value.sync as WorkoutSync
     : { status: "legacy" as const };
   if (value.training !== undefined) validateWorkoutTraining(value.training);
+  if (value.training?.sequence && !value.training.sequence.includes(value.workout)) throw new Error(`Workout ${position} is missing from its saved programme sequence.`);
   return {
     id,
     workout: value.workout,
@@ -129,7 +125,7 @@ export function createCsvBackup(history: HistoryMap, workouts: CompletedWorkout[
       session.exercise, session.performedAt.slice(0, 10), session.performedAt, session.sessionId,
       set.set, set.load || "BW", set.reps,
       workout?.id ?? "", workout?.workout ?? "", workout?.startedAt ?? "", workout?.endedAt ?? "",
-      workout?.bodyweight ?? "", workout?.note ?? "", exercise?.priority ?? "", exercise?.loadSuffix ?? "",
+      workout?.bodyweight ?? "", workout?.note ?? "", exercise?.priority ?? "", exercise?.loadSuffix ?? "", workout?.training ? JSON.stringify(workout.training) : "",
     ]);
   });
   return `\uFEFF${[CSV_HEADERS, ...rows].map((row) => row.map(csvCell).join(",")).join("\r\n")}`;
@@ -155,6 +151,7 @@ function parseCsvRows(text: string) {
 type CsvWorkout = {
   id: string; workout: WorkoutKey; startedAt: string; endedAt: string; bodyweight: string; note: string;
   sessionKeys: Set<string>; exerciseMeta: Map<string, { priority: "must" | "optional"; loadSuffix?: string }>;
+  training?: WorkoutTraining;
 };
 
 export function parseCsvBackup(text: string): ParsedBackup {
@@ -178,12 +175,18 @@ export function parseCsvBackup(text: string): ParsedBackup {
     if (!workoutId) return;
     const workout = get(item, "workout"); const startedAt = get(item, "workout_started_at"); const endedAt = get(item, "workout_ended_at");
     if (!isWorkoutKey(workout) || Number.isNaN(Date.parse(startedAt)) || Number.isNaN(Date.parse(endedAt)) || Date.parse(endedAt) < Date.parse(startedAt)) throw new Error(`CSV row ${rowIndex + 2} has invalid workout metadata.`);
+    const trainingRaw = getRaw(item, "training_snapshot");
+    let training: WorkoutTraining | undefined;
+    if (trainingRaw) { try { const parsed: unknown = JSON.parse(trainingRaw); validateWorkoutTraining(parsed); training = parsed; } catch { throw new Error(`CSV row ${rowIndex + 2} has an invalid training snapshot.`); } }
+    if (training?.sequence && !training.sequence.includes(workout)) throw new Error(`CSV row ${rowIndex + 2} has a workout outside its saved programme sequence.`);
     const metadata = csvWorkouts.get(workoutId) ?? {
       id: workoutId, workout, startedAt: new Date(startedAt).toISOString(), endedAt: new Date(endedAt).toISOString(),
       bodyweight: normalizeBodyweight(get(item, "bodyweight"), `CSV row ${rowIndex + 2}`), note: getRaw(item, "session_note"),
       sessionKeys: new Set<string>(), exerciseMeta: new Map(),
+      ...(training ? { training } : {}),
     };
     if (metadata.workout !== workout || metadata.startedAt !== new Date(startedAt).toISOString() || metadata.endedAt !== new Date(endedAt).toISOString()) throw new Error(`CSV workout ${workoutId} has inconsistent metadata.`);
+    if (JSON.stringify(metadata.training) !== JSON.stringify(training)) throw new Error(`CSV workout ${workoutId} has inconsistent training snapshots.`);
     metadata.sessionKeys.add(key);
     const loadSuffix = getRaw(item, "load_suffix");
     metadata.exerciseMeta.set(exercise, { priority: get(item, "exercise_priority") === "optional" ? "optional" : "must", ...(loadSuffix ? { loadSuffix } : {}) });
@@ -195,6 +198,7 @@ export function parseCsvBackup(text: string): ParsedBackup {
   const workouts = Array.from(csvWorkouts.values()).map((workout) => ({
     id: workout.id, workout: workout.workout, startedAt: workout.startedAt, endedAt: workout.endedAt,
     bodyweight: workout.bodyweight, note: workout.note,
+    ...(workout.training ? { training: workout.training } : {}),
     exercises: Array.from(workout.sessionKeys).map((key) => byKey.get(key)).filter((session): session is ExportSession => Boolean(session)).map((session) => {
       const metadata = workout.exerciseMeta.get(session.exercise) ?? { priority: "must" as const };
       return { name: session.exercise, ...metadata, sets: session.sets.map(({ load, reps }) => ({ load, reps })) };

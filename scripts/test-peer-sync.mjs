@@ -63,7 +63,28 @@ try {
   assert.equal(await b.evaluate(()=>localStorage.getItem('rolling-ppl-autumn-v1')?.includes('synthetic-local-only-token')||false),false);
   console.log('PASS: authenticated WebRTC sync, union, deduplication, credentials remain local');
   await close(a); await close(b);
-  await a.getByRole('button',{name:'Start push',exact:true}).click();
+  await a.getByRole('button',{name:'Progress',exact:true}).click();
+  await b.getByRole('button',{name:'Progress',exact:true}).click();
+  await a.getByRole('button',{name:'Log weigh-in',exact:true}).click();
+  await a.getByLabel('Weight (kg)',{exact:true}).fill('67.3');
+  await a.getByRole('button',{name:'Save weigh-in',exact:true}).click();
+  await waitFor(()=>b.getByText('Manage independent weigh-ins (1)',{exact:true}).isVisible(),'independent weigh-in sync');
+  await b.getByRole('button',{name:'Add measurements',exact:true}).click();
+  await b.getByLabel('Chest (cm)',{exact:true}).fill('96');
+  await b.getByRole('button',{name:'Save measurements',exact:true}).click();
+  await waitFor(()=>a.getByText('Manage measurement entries (1)',{exact:true}).isVisible(),'tape measurement sync');
+  await a.getByRole('button',{name:'Set a goal',exact:true}).click();
+  await a.getByLabel('Goal weight (kg)',{exact:true}).fill('70');
+  await a.getByRole('button',{name:'Save goal',exact:true}).click();
+  await b.getByRole('heading',{name:'Building toward 70 kg',exact:true}).waitFor();
+  await b.getByText('Manage independent weigh-ins (1)',{exact:true}).click();
+  await b.locator('.bodyweight-chart-card').getByRole('button',{name:'Delete',exact:true}).click();
+  await b.getByRole('button',{name:'Delete entry',exact:true}).click();
+  await waitFor(()=>a.getByText('Manage independent weigh-ins (0)',{exact:true}).isVisible(),'body deletion sync');
+  console.log('PASS: independent weigh-in, measurement, goal and deletion sync');
+  await a.getByRole('button',{name:'Train',exact:true}).click();
+  await b.getByRole('button',{name:'Train',exact:true}).click();
+  await a.getByRole('button',{name:'Start Push',exact:true}).click();
   await waitFor(()=>b.getByRole('button',{name:'Finish workout',exact:true}).isVisible(),'active workout propagation');
   const reps=page=>page.getByLabel(/Barbell bench press set 1 reps/);
   const load=page=>page.getByLabel(/Barbell bench press set 1 load/);
@@ -105,7 +126,7 @@ try {
   await a.getByLabel(/^Bodyweight/).fill('66.2');
   await a.getByLabel('Session note',{exact:true}).fill('Two browsers, one workout');
   await a.getByRole('button',{name:'Save workout',exact:true}).click();
-  await waitFor(async()=> (await state(b)).length===4 && await b.getByRole('button',{name:'Start pull',exact:true}).isVisible(),'completed workout and next sequence');
+  await waitFor(async()=> (await state(b)).length===4 && await b.getByRole('button',{name:'Start Pull',exact:true}).isVisible(),'completed workout and next sequence');
   const finished=(await state(b)).find(s=>s.note==='Two browsers, one workout');
   assert.equal(finished.bodyweight,'66.2'); assert.equal(finished.exercises[0].sets[0].reps,'10');
   console.log('PASS: exercise checkpoint, finish, bodyweight, note and next workout sync');
@@ -125,7 +146,7 @@ try {
   console.log('PASS: removal disconnects peer and retains local workouts');
   if (process.env.SYNC_TEST_PRODUCTION) {
     await b.context().setOffline(true); await b.reload();
-    await b.getByRole('button',{name:'Start pull',exact:true}).waitFor();
+    await b.getByRole('button',{name:'Start Pull',exact:true}).waitFor();
     assert.equal((await state(b)).length,4);
     console.log('PASS: production service worker loads full local workout copy offline');
   }

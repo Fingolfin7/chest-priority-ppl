@@ -295,20 +295,36 @@ function hasOnlyKeys(value: Record<string, unknown>, allowed: string[]) {
   return Object.keys(value).every((key) => allowed.includes(key));
 }
 
-export async function exportProgressPhotos(): Promise<PhotoProgressBackup> {
-  const photos = await getProgressPhotos();
-  if (photos.length > PHOTO_BACKUP_MAX_PHOTOS) throw new PhotoStorageError(`Keep at most ${PHOTO_BACKUP_MAX_PHOTOS} photos to export a photo backup.`);
+export async function exportProgressPhotos(options: {
+  view?: ProgressPhotoView;
+  fromDate?: string;
+  throughDate?: string;
+} = {}): Promise<PhotoProgressBackup> {
+  if (options.view !== undefined && !isProgressPhotoView(options.view)) throw new PhotoStorageError("Choose front, side, or back view.");
+  if (options.fromDate && !isValidDate(options.fromDate)) throw new PhotoStorageError("Choose a valid start date.");
+  if (options.throughDate && !isValidDate(options.throughDate)) throw new PhotoStorageError("Choose a valid end date.");
+  if (options.fromDate && options.throughDate && options.fromDate > options.throughDate) {
+    throw new PhotoStorageError("The start date must be before the end date.");
+  }
+  const photos = (await getProgressPhotos()).filter((photo) =>
+    (!options.view || photo.view === options.view)
+      && (!options.fromDate || photo.date >= options.fromDate)
+      && (!options.throughDate || photo.date <= options.throughDate),
+  );
+  if (photos.length > PHOTO_BACKUP_MAX_PHOTOS) {
+    throw new PhotoStorageError(`This selection has more than ${PHOTO_BACKUP_MAX_PHOTOS} photos. Choose one view or a shorter date range, then export another file.`);
+  }
   const backupPhotos: PhotoBackupEntry[] = [];
   let projectedBytes = BACKUP_HEADER.length;
   for (const [index, photo] of photos.entries()) {
     if (photo.blob.size > PHOTO_BACKUP_MAX_IMAGE_BYTES) {
-      throw new PhotoStorageError(`Photo from ${photo.date} is too large to export. Delete it or add a compressed copy.`);
+      throw new PhotoStorageError(`The photo from ${photo.date} is too large for a photo backup. Download it from its preview, or choose another view or date range.`);
     }
     const data = await blobToBase64(photo.blob);
     const entry: PhotoBackupEntry = { id: photo.id, date: photo.date, view: photo.view, mimeType: photo.mimeType, data };
     projectedBytes += JSON.stringify({ ...entry, data: "" }).length + data.length + (index ? 1 : 0);
     if (projectedBytes > PHOTO_BACKUP_MAX_BYTES) {
-      throw new PhotoStorageError("Photo backup exceeds the 256 MiB limit. Remove some older photos and export again.");
+      throw new PhotoStorageError("This selection is too large for one photo backup. Choose one view or a shorter date range, then export another file.");
     }
     backupPhotos.push(entry);
   }

@@ -4,8 +4,8 @@ import { chartScale, type ExerciseSeries } from "./progressModel";
 const number = (value: number) => value.toLocaleString(undefined, { maximumFractionDigits: 2 });
 const dateLabel = (date: string) => new Date(date).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
 
-export function TrendChart({ series, unit, emptyTitle, emptyHint, label }: {
-  series: ExerciseSeries[]; unit: "kg" | "kg·reps" | "cm"; emptyTitle: string; emptyHint: string; label: string;
+export function TrendChart({ series, unit, emptyTitle, emptyHint, label, showSummary = true }: {
+  series: ExerciseSeries[]; unit: "kg" | "kg·reps" | "cm"; emptyTitle: string; emptyHint: string; label: string; showSummary?: boolean;
 }) {
   const container = useRef<HTMLDivElement>(null);
   const gradient = useId();
@@ -35,7 +35,7 @@ export function TrendChart({ series, unit, emptyTitle, emptyHint, label }: {
   const dateTicks = first === last ? [first] : width < 480 ? [first, last] : [first, first + (last - first) / 2, last];
   return <div className="trend-chart" ref={container}>
     {!points.length ? <div className="empty-chart"><strong>{emptyTitle}</strong><span>{emptyHint}</span></div> : <>
-      <div className="trend-summaries">{series.map((item, index) => {
+      {showSummary && <div className="trend-summaries">{series.map((item, index) => {
         const latest = item.points.at(-1)!;
         const delta = latest.value - item.points[0].value;
         return <div className={`trend-summary trace-${index}`} key={item.exercise}>
@@ -43,7 +43,7 @@ export function TrendChart({ series, unit, emptyTitle, emptyHint, label }: {
           <strong>{number(latest.value)} <small>{unit}</small></strong>
           <p>{item.points.length > 1 ? `${delta > 0 ? "+" : ""}${number(delta)} ${unit} from first shown` : "First recorded reading"}</p>
         </div>;
-      })}</div>
+      })}</div>}
       <div className="trend-axis-label"><span>{unit === "kg" ? "Weight (kg)" : unit === "cm" ? "Circumference (cm)" : "Recorded volume (kg × reps)"}</span><span>{Math.max(...series.map((item) => item.points.length))} reading{Math.max(...series.map((item) => item.points.length)) === 1 ? "" : "s"}{series.length > 1 ? " max per lift" : ""}</span></div>
       <svg className="trend-plot" width="100%" height="266" viewBox={`0 0 ${width} 266`} role="group" aria-label={label}>
         <defs><linearGradient id={gradient} x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="var(--trace-0)" stopOpacity=".23" /><stop offset="100%" stopColor="var(--trace-0)" stopOpacity=".015" /></linearGradient></defs>

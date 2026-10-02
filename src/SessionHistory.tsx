@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { formatExerciseSets, workoutDurationMinutes, type CompletedWorkout, type ExerciseDefinition } from "./sessionModel";
+import { formatExerciseSets, workoutDurationMinutes, workoutLabel, type CompletedWorkout, type ExerciseDefinition } from "./sessionModel";
 import { validateSessionEdit } from "./sessionEditing";
 
 function localTime(value: string) {
@@ -25,7 +25,7 @@ function SessionEditor({ original, definitions, onSave, onCancel }: {
     if (!result.session) { setError(result.error || "Unable to save session."); return; }
     setError(onSave(original, result.session));
   }}>
-    <h3>Edit {original.workout} session</h3>
+    <h3>Edit {workoutLabel(original.workout, original.training)} session</h3>
     <div className="session-fields">
       <label>Started<input type="datetime-local" step="1" required value={start} onChange={(event) => setStart(event.target.value)} /></label>
       <label>Finished<input type="datetime-local" step="1" required value={end} onChange={(event) => setEnd(event.target.value)} /></label>
@@ -61,13 +61,13 @@ export function SessionHistory({ sessions, definitions, onSave }: {
   const [message, setMessage] = useState("");
   return <section className="session-history" aria-labelledby="sessions-title"><h2 id="sessions-title">Past sessions</h2>
     <p role="status">{message}</p>
-    {editing ? <SessionEditor key={editing.id} original={editing} definitions={definitions[editing.workout]} onCancel={() => setEditing(null)} onSave={(original, updated) => {
+    {editing ? <SessionEditor key={editing.id} original={editing} definitions={definitions[editing.workout] ?? editing.exercises} onCancel={() => setEditing(null)} onSave={(original, updated) => {
       const error = onSave(original, updated);
       if (!error) { setEditing(null); setMessage("Session updated."); }
       return error;
     }} /> : <>
       {!sessions.length && <p>Completed workouts will appear here.</p>}
-      {sessions.slice(0, limit).map((session) => <article className="past-session" key={session.id}><div className="past-session-heading"><div><h3>{session.workout} · {new Date(session.startedAt).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" })}</h3><p>{workoutDurationMinutes(session)} min{session.bodyweight ? ` · ${session.bodyweight} kg bodyweight` : ""}{session.training ? ` · ${session.training.phaseName}` : ""}</p></div><button className="secondary-action" type="button" disabled={session.sync.status === "syncing"} onClick={() => { setEditing(session); setMessage(""); }}>Edit session</button></div><details><summary>Session details</summary><ul>{session.exercises.map((exercise) => <li key={exercise.name}><strong>{exercise.name}</strong>: {formatExerciseSets(exercise)}</li>)}</ul>{session.note && <p className="session-note">{session.note}</p>}</details></article>)}
+      {sessions.slice(0, limit).map((session) => <article className="past-session" key={session.id}><div className="past-session-heading"><div><h3>{workoutLabel(session.workout, session.training)} · {new Date(session.startedAt).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" })}</h3><p>{workoutDurationMinutes(session)} min{session.bodyweight ? ` · ${session.bodyweight} kg bodyweight` : ""}{session.training ? ` · ${session.training.programName ? `${session.training.programName} / ` : ""}${session.training.phaseName}` : ""}</p></div><button className="secondary-action" type="button" disabled={session.sync.status === "syncing"} onClick={() => { setEditing(session); setMessage(""); }}>Edit session</button></div><details><summary>Session details</summary><ul>{session.exercises.map((exercise) => <li key={exercise.name}><strong>{exercise.name}</strong>: {formatExerciseSets(exercise)}</li>)}</ul>{session.note && <p className="session-note">{session.note}</p>}</details></article>)}
       {sessions.length > limit && <button type="button" className="secondary-action" onClick={() => setLimit(limit + 10)}>Show more sessions</button>}
     </>}
   </section>;

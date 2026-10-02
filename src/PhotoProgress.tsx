@@ -49,6 +49,8 @@ export function PhotoProgress() {
   const [photoDate, setPhotoDate] = useState(todayLocal);
   const [importView, setImportView] = useState<ProgressPhotoView>("front");
   const [filterView, setFilterView] = useState<"all" | ProgressPhotoView>("all");
+  const [backupFromDate, setBackupFromDate] = useState("");
+  const [backupThroughDate, setBackupThroughDate] = useState("");
   const [storageInfo, setStorageInfo] = useState<{ usage?: number; quota?: number; persisted: boolean }>({ persisted: false });
   const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
   const [cameraStarting, setCameraStarting] = useState(false);
@@ -198,6 +200,12 @@ export function PhotoProgress() {
     () => filterView === "all" ? photos : photos.filter((photo) => photo.view === filterView),
     [photos, filterView],
   );
+  const checkInCount = useMemo(() => new Set(photos.map((photo) => photo.date)).size, [photos]);
+  const viewCounts = useMemo(() => Object.fromEntries(VIEWS.map((view) => [view, photos.filter((photo) => photo.view === view).length])) as Record<ProgressPhotoView, number>, [photos]);
+  const backupPhotoCount = filteredPhotos.filter((photo) =>
+    (!backupFromDate || photo.date >= backupFromDate) && (!backupThroughDate || photo.date <= backupThroughDate),
+  ).length;
+  const invalidBackupDateRange = Boolean(backupFromDate && backupThroughDate && backupFromDate > backupThroughDate);
 
   const availableIds = new Set(comparePhotos.map((photo) => photo.id));
   const selectedBeforeId = availableIds.has(beforeId) ? beforeId : comparePhotos[0]?.id ?? "";
@@ -316,19 +324,24 @@ export function PhotoProgress() {
   async function exportBackup() {
     setBusy(true);
     try {
-      const backup = await exportProgressPhotos();
+      const backup = await exportProgressPhotos({
+        ...(filterView === "all" ? {} : { view: filterView }),
+        ...(backupFromDate ? { fromDate: backupFromDate } : {}),
+        ...(backupThroughDate ? { throughDate: backupThroughDate } : {}),
+      });
       const payload = JSON.stringify(backup);
       const verifiedBackup = parseProgressPhotoBackup(payload);
       if (verifiedBackup.photos.length !== backup.photos.length) throw new Error("Photo backup verification failed. Try the export again.");
       const blob = new Blob([payload], { type: "application/json" });
-      if (blob.size > PHOTO_BACKUP_MAX_BYTES) throw new Error("Photo backup exceeds the 256 MiB limit.");
+      if (blob.size > PHOTO_BACKUP_MAX_BYTES) throw new Error("This selection is too large for one photo backup. Choose one view or a shorter date range, then export another file.");
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
-      link.download = `rolling-ppl-progress-photos-${todayLocal()}.json`;
+      const selection = filterView === "all" ? "photos" : `${filterView}-photos`;
+      link.download = `rolling-ppl-${selection}-${backupFromDate || "all"}-to-${backupThroughDate || "all"}-${todayLocal()}.json`;
       link.click();
       window.setTimeout(() => URL.revokeObjectURL(url), 1_000);
-      setStatus(`Photo backup download started (${verifiedBackup.photos.length} photos). Verify ${link.download} in your Downloads before clearing browser data.`);
+      setStatus(`Photo backup started with ${verifiedBackup.photos.length} ${verifiedBackup.photos.length === 1 ? "photo" : "photos"}. Keep a copy somewhere outside this browser.`);
     } catch (error) {
       setStatus(asErrorMessage(error));
     } finally {
@@ -341,7 +354,7 @@ export function PhotoProgress() {
     event.currentTarget.value = "";
     if (!file) return;
     if (file.size > PHOTO_BACKUP_MAX_BYTES) {
-      setStatus("Photo backup exceeds the 256 MiB limit.");
+      setStatus("This photo backup is too large to import at once. Choose smaller files split by view or date range.");
       return;
     }
     setBusy(true);
@@ -368,6 +381,16 @@ export function PhotoProgress() {
     }
   }
 
+  function downloadPhoto(photo: ProgressPhoto) {
+    const url = URL.createObjectURL(photo.blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `rolling-ppl-${photo.view}-${photo.date}.jpg`;
+    link.click();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1_000);
+    setStatus(`${viewLabel(photo.view)} photo from ${displayDate(photo.date)} downloaded.`);
+  }
+
   return <section className="photo-progress" aria-labelledby="photo-progress-title">
     <header className="photo-progress-heading">
       <div>
@@ -380,11 +403,10 @@ export function PhotoProgress() {
     {storageError && <p className="photo-progress-error" role="alert">{storageError}</p>}
     {status && <p className="photo-progress-status" role="status">{status}</p>}
 
-    <div className="photo-storage-card">
-      <div><strong>On this device</strong><span>{photos.length} saved · {formatBytes(storageInfo.usage)} of {formatBytes(storageInfo.quota)} site storage used</span></div>
-      {!storageInfo.persisted && <button type="button" className="secondary-action" onClick={() => void protectStorage()} disabled={busy}>Protect storage</button>}
-      {storageInfo.persisted && <span className="photo-storage-protected">Persistent storage enabled</span>}
-    </div>
+    <section className="photo-collection-summary" aria-label="Photo collection summary">
+      <div className="photo-collection-total"><strong>{loading ? "Loading your collection…" : `${photos.length} ${photos.length === 1 ? "photo" : "photos"}`}</strong>{!loading && <span>Across {checkInCount} {checkInCount === 1 ? "check-in" : "check-ins"}</span>}</div>
+      {!loading && <ul aria-label="Photos by view">{VIEWS.map((view) => <li key={view}><span>{viewLabel(view)}</span><strong>{viewCounts[view]}</strong></li>)}</ul>}
+    </section>
 
     <fieldset className="photo-add-card" disabled={busy || loading}>
       <legend>Add a check-in</legend>
@@ -430,13 +452,35 @@ export function PhotoProgress() {
     </section>
 
     <section className="photo-gallery" aria-labelledby="photo-gallery-title">
-      <div className="photo-section-heading"><div><h3 id="photo-gallery-title" ref={galleryHeadingRef} tabIndex={-1}>Your check-ins</h3><p>Photos are included in Complete Backup and excluded from workout-only Data exports. Export a photo backup before changing or clearing browser data.</p></div>
+      <div className="photo-section-heading"><div><h3 id="photo-gallery-title" ref={galleryHeadingRef} tabIndex={-1}>Your check-ins</h3><p>Photos stay on this device. Complete Backup includes them; workout exports do not.</p></div>
         <label>Show<select value={filterView} onChange={(event) => setFilterView(event.target.value as "all" | ProgressPhotoView)}><option value="all">All views</option>{VIEWS.map((view) => <option key={view} value={view}>{viewLabel(view)}</option>)}</select></label>
       </div>
-      <div className="photo-backup-actions">
-        <button type="button" className="secondary-action" onClick={() => void exportBackup()} disabled={busy || loading}>Export photo backup</button>
-        <label className="secondary-action photo-file-button">Import photo backup<input type="file" accept="application/json,.json" onChange={(event) => void importBackup(event)} /></label>
-      </div>
+      <details className="photo-storage-details">
+        <summary>Storage and photo backups</summary>
+        <div className="photo-storage-content">
+          <section aria-labelledby="photo-storage-title">
+            <h3 id="photo-storage-title">Storage on this device</h3>
+            <p>Photos stay in this browser on this device. They are not uploaded or added to your phone gallery.</p>
+            <p className="photo-storage-usage">{formatBytes(storageInfo.usage)} of {formatBytes(storageInfo.quota)} site storage used</p>
+            {!storageInfo.persisted && <button type="button" className="secondary-action" onClick={() => void protectStorage()} disabled={busy}>Ask browser to protect photos</button>}
+            {storageInfo.persisted && <p className="photo-storage-protected">Your browser is protecting this site&apos;s storage from automatic cleanup.</p>}
+          </section>
+          <section className="photo-backup-tools" aria-labelledby="photo-backup-title">
+            <h3 id="photo-backup-title">Move photos to another device</h3>
+            <p>Complete Backup includes all photos. For a smaller separate file, export the view shown above and narrow it by date.</p>
+            <div className="photo-backup-dates">
+              <label>Start date<input type="date" value={backupFromDate} onChange={(event) => setBackupFromDate(event.target.value)} /></label>
+              <label>End date<input type="date" value={backupThroughDate} onChange={(event) => setBackupThroughDate(event.target.value)} /></label>
+            </div>
+            {invalidBackupDateRange && <p className="photo-backup-date-error" role="alert">Start date must be before end date.</p>}
+            <div className="photo-backup-actions">
+              <button type="button" className="secondary-action" onClick={() => void exportBackup()} disabled={busy || loading || backupPhotoCount === 0 || invalidBackupDateRange}>Export {backupPhotoCount} {backupPhotoCount === 1 ? "photo" : "photos"}</button>
+              <label className="secondary-action photo-file-button">Import photo backup<input type="file" accept="application/json,.json" onChange={(event) => void importBackup(event)} /></label>
+            </div>
+            <p className="photo-backup-note">If a selection is too large for one file, split it by view or choose a shorter date range. You can also download a single photo from its preview.</p>
+          </section>
+        </div>
+      </details>
       {loading ? <p className="photo-empty">Loading private photos…</p> : filteredPhotos.length === 0 ? <p className="photo-empty">No {filterView === "all" ? "photos" : `${filterView} photos`} saved yet.</p> : <div className="photo-grid">
         {filteredPhotos.map((photo) => <article className="photo-card" key={photo.id}>
           <button className="photo-thumbnail-button" type="button" onClick={(event) => { focusReturnRef.current = event.currentTarget; setPreviewPhoto(photo); }} aria-label={`Open ${viewLabel(photo.view)} photo from ${displayDate(photo.date)}`}>
@@ -453,7 +497,7 @@ export function PhotoProgress() {
     </section></div>}
 
     {previewPhoto && <div className="photo-dialog-backdrop"><section ref={dialogRef} tabIndex={-1} className="photo-preview-dialog" role="dialog" aria-modal="true" aria-labelledby="photo-preview-title">
-      <div><h3 id="photo-preview-title">{viewLabel(previewPhoto.view)} · {displayDate(previewPhoto.date)}</h3><button ref={dialogActionRef} type="button" className="text-action" onClick={() => setPreviewPhoto(null)}>Close</button></div>
+      <div><h3 id="photo-preview-title">{viewLabel(previewPhoto.view)} · {displayDate(previewPhoto.date)}</h3><div className="photo-preview-actions"><button type="button" className="secondary-action" onClick={() => downloadPhoto(previewPhoto)}>Download photo</button><button ref={dialogActionRef} type="button" className="text-action" onClick={() => setPreviewPhoto(null)}>Close</button></div></div>
       <img src={photoUrls.get(`${previewPhoto.id}:full`)} alt={`${viewLabel(previewPhoto.view)} view, ${displayDate(previewPhoto.date)}`} />
     </section></div>}
   </section>;

@@ -2,9 +2,61 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import * as A from '@automerge/automerge';
 import {createSyncDoc,emptySyncSnapshot,listSyncConflicts,migrateExerciseAliases,projectSyncDoc,resolveSyncConflict,updateSyncDoc,validateSyncDoc} from '../src/peerSyncModel.ts';
+import {emptyBodyProgress,mergeBodyProgress} from '../src/bodyProgressModel.ts';
 const exercise='Barbell bench press';
 const key=(...parts)=>JSON.stringify(parts);
 const merge=(a,b)=>A.merge(A.clone(a),b);
+const bodyWeight=(id,kg=67,updatedAt='2026-09-20T10:00:00.000Z')=>({id,date:'2026-09-20',kg,note:'',updatedAt});
+const bodySnapshot=(body)=>({...emptySyncSnapshot(),bodyProgress:{...emptyBodyProgress(),...body}});
+
+test('paired body progress unions independent weights, measurements, goals and remains separate from photos',()=>{
+  const left=bodySnapshot({weighIns:[bodyWeight('phone')],goal:{targets:[70],sustainedDays:3,minimumReadings:3,updatedAt:'2026-09-22T10:00:00.000Z'}});
+  const right=bodySnapshot({weighIns:[bodyWeight('laptop',68)],measurements:[{id:'tape',date:'2026-09-20',waist:80,note:'',updatedAt:'2026-09-20T10:00:00.000Z'}]});
+  const doc=merge(createSyncDoc(left),createSyncDoc(right));
+  assert.deepEqual(projectSyncDoc(doc).bodyProgress,mergeBodyProgress(left.bodyProgress,right.bodyProgress));
+  assert.deepEqual(projectSyncDoc(A.load(A.save(doc))).bodyProgress,projectSyncDoc(doc).bodyProgress);
+  assert.deepEqual(listSyncConflicts(doc),[]);
+  assert.equal(projectSyncDoc(merge(doc,createSyncDoc())).bodyProgress.goal.targets[0],70);
+  assert.equal(Object.keys(doc.values).some(path=>path.includes('photo')),false);
+});
+
+test('body deletion tombstones survive stale peers, backup copies and causal edits with older timestamps',()=>{
+  const original=bodySnapshot({weighIns:[bodyWeight('old')]});
+  const base=createSyncDoc(original);
+  const deleted=edit(A.clone(base),s=>{s.bodyProgress.weighIns=[];s.bodyProgress.deletions=[{kind:'weight',id:'old',deletedAt:'2026-09-22T10:00:00.000Z'}];});
+  let doc=merge(deleted,createSyncDoc(original));
+  assert.equal(projectSyncDoc(doc).bodyProgress.weighIns.length,0);
+  doc=edit(doc,s=>{s.bodyProgress.weighIns=[bodyWeight('old',69,'2026-09-21T10:00:00.000Z')];});
+  assert.equal(projectSyncDoc(doc).bodyProgress.weighIns.length,0);
+  doc=edit(doc,s=>{s.bodyProgress.weighIns=[bodyWeight('old',70,'2026-09-23T10:00:00.000Z')];});
+  assert.equal(projectSyncDoc(doc).bodyProgress.weighIns[0].kg,70);
+  assert.equal(projectSyncDoc(merge(doc,base)).bodyProgress.weighIns[0].kg,70);
+});
+
+test('body record versions converge on concurrent edits and same-timestamp imports',()=>{
+  const base=createSyncDoc(bodySnapshot({weighIns:[bodyWeight('w')]}));
+  const left=edit(A.clone(base),s=>{s.bodyProgress.weighIns=[bodyWeight('w',68,'2026-09-21T10:00:00.000Z')];});
+  const right=edit(A.clone(base),s=>{s.bodyProgress.weighIns=[bodyWeight('w',69,'2026-09-22T10:00:00.000Z')];});
+  const doc=merge(left,right);
+  assert.equal(projectSyncDoc(doc).bodyProgress.weighIns[0].kg,69);
+  const older=edit(doc,s=>{s.bodyProgress.weighIns=[bodyWeight('w',66,'2026-09-20T10:00:00.000Z')];});
+  assert.equal(projectSyncDoc(older).bodyProgress.weighIns[0].kg,69);
+  const a=createSyncDoc(bodySnapshot({weighIns:[bodyWeight('same',66)]})),b=createSyncDoc(bodySnapshot({weighIns:[bodyWeight('same',68)]}));
+  assert.deepEqual(projectSyncDoc(merge(a,b)).bodyProgress,projectSyncDoc(merge(b,a)).bodyProgress);
+  const unchanged=edit(merge(a,b),s=>{s.bodyProgress.weighIns=[bodyWeight('same',66)];});
+  assert.equal(projectSyncDoc(unchanged).bodyProgress.weighIns[0].kg,68);
+});
+
+test('incoming body versions validate identity, bounds, tombstones and hidden conflicting records',()=>{
+  const base=createSyncDoc();
+  const write=(parts,value)=>A.change(A.clone(base),d=>{d.values[key(...parts)]=new A.ImmutableString(JSON.stringify(JSON.stringify(value)));});
+  const stamp='2026-09-20T10:00:00.000Z',path=['body','weight','w',stamp];
+  assert.throws(()=>validateSyncDoc(write(path,bodyWeight('different'))),/identity/);
+  assert.throws(()=>validateSyncDoc(write(path,bodyWeight('w',501))),/Weight/);
+  assert.throws(()=>validateSyncDoc(write(['body','deletion','weight','w',stamp],{kind:'measurement',id:'w',deletedAt:stamp})),/identity/);
+  assert.throws(()=>validateSyncDoc(write(['body','photo','w',stamp],{id:'w'})),/path/);
+  assert.throws(()=>validateSyncDoc(merge(write(path,bodyWeight('w',67)),write(path,bodyWeight('w',-1)))),/Weight/);
+});
 function workout(id='workout-1',date='2026-09-01') {return {id,workout:'push',startedAt:`${date}T05:00:00.000Z`,endedAt:`${date}T06:00:00.000Z`,bodyweight:'65',note:'Original note',exercises:[{name:exercise,priority:'must',sets:[{load:'55',reps:'8'},{load:'55',reps:'7'}]}],sync:{status:'unsynced'}};}
 function snapshot(...completed){const s=emptySyncSnapshot();s.completed=completed;for(const w of completed)for(const e of w.exercises)(s.history[e.name]??=[]).push({id:`${w.id}:${e.name}`,savedAt:w.endedAt,sets:structuredClone(e.sets)});return s;}
 function edit(doc,change){const before=projectSyncDoc(doc),after=structuredClone(before);change(after);return updateSyncDoc(doc,before,after);}

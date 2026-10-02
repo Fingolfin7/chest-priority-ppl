@@ -1,7 +1,14 @@
 import type { HistoryMap, SetEntry } from "./historyMigration";
 import type { WorkoutTraining } from "./planModel.ts";
 
-export type WorkoutKey = "push" | "pull" | "legs";
+// Stable workout IDs are separate from the names shown in a programme.
+export type WorkoutKey = string;
+export function isWorkoutKey(value: unknown): value is WorkoutKey {
+  return typeof value === "string" && /^[A-Za-z0-9][A-Za-z0-9_-]{0,119}$/.test(value) && !["__proto__", "constructor", "prototype"].includes(value);
+}
+export function workoutLabel(workout: WorkoutKey, source?: { workouts?: Record<string, { name?: string }>; workoutName?: string }) {
+  return source?.workoutName ?? source?.workouts?.[workout]?.name ?? workout.charAt(0).toUpperCase() + workout.slice(1);
+}
 export type ExercisePriority = "must" | "optional";
 
 export type ActiveWorkout = {
@@ -47,9 +54,10 @@ export type ExerciseDefinition = {
 
 export const WORKOUT_SEQUENCE: WorkoutKey[] = ["push", "pull", "legs"];
 
-export function nextWorkout(workout: WorkoutKey): WorkoutKey {
-  const index = WORKOUT_SEQUENCE.indexOf(workout);
-  return WORKOUT_SEQUENCE[(index + 1) % WORKOUT_SEQUENCE.length];
+export function nextWorkout(workout: WorkoutKey, sequence: WorkoutKey[] = WORKOUT_SEQUENCE): WorkoutKey {
+  if (!sequence.length) throw new Error("A programme needs at least one workout.");
+  const index = sequence.indexOf(workout);
+  return sequence[(index + 1) % sequence.length];
 }
 
 export function createActiveWorkout(workout: WorkoutKey, startedAt = new Date().toISOString(), id = crypto.randomUUID()): ActiveWorkout {
@@ -154,7 +162,7 @@ export function formatExerciseSets(exercise: CompletedExercise) {
 
 export function workoutSummary(session: CompletedWorkout) {
   const lines = [
-    `${session.workout[0].toUpperCase()}${session.workout.slice(1)} day.`,
+    `${workoutLabel(session.workout, session.training)} day.`,
     "",
     ...session.exercises.map((exercise) => `${exercise.name}: ${formatExerciseSets(exercise)}`),
   ];

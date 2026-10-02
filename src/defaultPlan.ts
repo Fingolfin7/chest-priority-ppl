@@ -27,4 +27,18 @@ export const defaultWorkouts: PlanWorkouts = {
 };
 
 
-export function defaultPlanState(): PlanState { return { currentId: "original-ppl-v1", phases: [{ id: "original-ppl-v1", name: "Chest emphasis", purpose: "Build strength and muscle with a rolling Push, Pull, Legs sequence.", startedAt: "2026-10-02T00:00:00.000Z", workouts: structuredClone(defaultWorkouts) }] }; }
+export function defaultPlanState(): PlanState { return { currentId: "original-ppl-v1", phases: [{ id: "original-ppl-v1", name: "Chest emphasis", purpose: "Build strength and muscle with a rolling Push, Pull, Legs sequence.", startedAt: "2026-10-02T00:00:00.000Z", programId: "original-ppl-program", programName: "Chest-priority PPL", sequence: ["push", "pull", "legs"], workouts: structuredClone(defaultWorkouts) }] }; }
+
+export type ProgramPreset = "ppl" | "upper-lower" | "full-body" | "custom";
+export function programPreset(preset: ProgramPreset): { name: string; sequence: string[]; workouts: PlanWorkouts } {
+  if (preset === "ppl") return { name: "Chest-priority PPL", sequence: ["push", "pull", "legs"], workouts: structuredClone(defaultWorkouts) };
+  const pick = (...names: string[]) => names.map((name) => structuredClone(Object.values(defaultWorkouts).flatMap((workout) => workout.exercises).find((exercise) => exercise.name === name)!));
+  if (preset === "upper-lower") return { name: "Upper / Lower", sequence: ["upper", "lower"], workouts: {
+    upper: { name: "Upper", summary: "Press, pull, shoulders and arms", exercises: pick("Barbell bench press", "Bent-over barbell row", "Vertical pull", "Lateral raise", "Cable triceps pushdown", "Barbell curl") },
+    lower: { name: "Lower", summary: "Squat, hinge and legs", exercises: pick("Back squat", "Conventional deadlift", "Leg curl", "Calf raise", "Ab crunch machine") },
+  } };
+  if (preset === "full-body") return { name: "Full body", sequence: ["full-body"], workouts: {
+    "full-body": { name: "Full body", summary: "Squat, press and pull", exercises: pick("Back squat", "Barbell bench press", "Bent-over barbell row", "Leg curl", "Lateral raise") },
+  } };
+  return { name: "My programme", sequence: ["workout-a"], workouts: { "workout-a": { name: "Workout A", summary: "", exercises: [{ name: "", sets: "3", reps: "8–12", rest: "", warmup: "", cue: "", priority: "must", demos: [] }] } } };
+}

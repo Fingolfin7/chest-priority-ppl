@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { emptySyncSnapshot } from '../src/peerSyncModel.ts';
 import { mergeBackupSnapshot, validateBackupSnapshot } from '../src/backupBundle.ts';
+import {emptyBodyProgress} from '../src/bodyProgressModel.ts';
 
 const workout = (id) => ({ id, workout:'push', startedAt:'2026-09-01T08:00:00Z', endedAt:'2026-09-01T09:00:00Z', bodyweight:'64', note:'', exercises:[{ name:'Bench', priority:'must', sets:[{load:'60',reps:'6'}]}], sync:{status:'unsynced'} });
 test('complete backup validation strips unrelated credentials and rejects broken data', () => {
@@ -30,4 +31,13 @@ test('restore keeps entered sets in a browser without completed history', () => 
   const current = {...emptySyncSnapshot(), drafts:{Bench:[{load:'50',reps:'8'}]}};
   const incoming = {...emptySyncSnapshot(), drafts:{Row:[{load:'60',reps:'9'}]}};
   assert.deepEqual(mergeBackupSnapshot(current,incoming).drafts,current.drafts);
+});
+
+test('complete backup body restore unions distinct records without reviving deleted readings',()=>{
+  const record=id=>({id,date:'2026-09-20',kg:67,note:'',updatedAt:'2026-09-20T10:00:00.000Z'});
+  const current={...emptySyncSnapshot(),bodyProgress:{...emptyBodyProgress(),weighIns:[record('current')],deletions:[{kind:'weight',id:'deleted',deletedAt:'2026-09-21T10:00:00.000Z'}]}};
+  const incoming=validateBackupSnapshot({...emptySyncSnapshot(),bodyProgress:{...emptyBodyProgress(),weighIns:[record('restored'),record('deleted')]}});
+  const restored=mergeBackupSnapshot(current,incoming);
+  assert.deepEqual(restored.bodyProgress.weighIns.map(w=>w.id),['current','restored']);
+  assert.deepEqual(mergeBackupSnapshot(restored,incoming).bodyProgress,restored.bodyProgress);
 });

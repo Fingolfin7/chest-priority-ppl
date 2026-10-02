@@ -1,18 +1,22 @@
-import type { WorkoutKey } from "./sessionModel.ts";
+import { isWorkoutKey, WORKOUT_SEQUENCE, workoutLabel, nextWorkout, type WorkoutKey } from "./sessionModel.ts";
 
 export type PlanExercise = {
   name: string; sets: string; reps: string; rest: string; warmup: string; cue: string;
   priority: "must" | "optional"; loadSuffix?: string;
   demos: Array<{ label: string; slug: string }>; alternatives?: string[];
 };
-export type PlanWorkouts = Record<WorkoutKey, { summary: string; exercises: PlanExercise[] }>;
+export type PlanWorkouts = Record<WorkoutKey, { name?: string; summary: string; exercises: PlanExercise[] }>;
 export type TrainingPhase = {
   id: string; name: string; purpose: string; startedAt: string; workouts: PlanWorkouts;
+  programId?: string; programName?: string; sequence?: WorkoutKey[];
 };
 export type PlanState = { currentId: string; phases: TrainingPhase[] };
-export type WorkoutTraining = { phaseId: string; phaseName: string; purpose: string; exercises: PlanExercise[] };
+export type WorkoutTraining = { phaseId: string; phaseName: string; purpose: string; exercises: PlanExercise[]; programId?: string; programName?: string; workoutName?: string; sequence?: WorkoutKey[] };
 export const PLAN_STORAGE_KEY = "rolling-ppl-plan-v1";
-const keys: WorkoutKey[] = ["push", "pull", "legs"];
+export function phaseSequence(phase: TrainingPhase): WorkoutKey[] { return phase.sequence ?? WORKOUT_SEQUENCE; }
+export function phaseProgramName(phase: TrainingPhase) { return phase.programName ?? "Chest-priority PPL"; }
+export function phaseProgramId(phase: TrainingPhase) { return phase.programId ?? "original-ppl-program"; }
+function validSequence(value: unknown): value is WorkoutKey[] { return Array.isArray(value) && value.length >= 1 && value.length <= 12 && value.every(isWorkoutKey) && new Set(value).size === value.length; }
 
 function record(value: unknown): value is Record<string, unknown> { return Boolean(value && typeof value === "object" && !Array.isArray(value)); }
 function onlyKeys(value: Record<string, unknown>, allowed: string[]) { return Object.keys(value).every((key) => allowed.includes(key)); }
@@ -47,23 +51,27 @@ export function validatePlanExercises(value: unknown): asserts value is PlanExer
   }
 }
 export function validateTrainingPhase(value: unknown): asserts value is TrainingPhase {
-  if (!record(value) || !onlyKeys(value, ["id", "name", "purpose", "startedAt", "workouts"]) || !text(value.id, 120, true) || !text(value.name, 120, true) || !text(value.purpose, 2000)
-    || !text(value.startedAt, 40, true) || !Number.isFinite(Date.parse(value.startedAt)) || !record(value.workouts) || !onlyKeys(value.workouts, keys)) throw new Error("Invalid training phase.");
-  for (const key of keys) {
+  if (!record(value) || !onlyKeys(value, ["id", "name", "purpose", "startedAt", "workouts", "programId", "programName", "sequence"]) || !text(value.id, 120, true) || !text(value.name, 120, true) || !text(value.purpose, 2000)
+    || !text(value.startedAt, 40, true) || !Number.isFinite(Date.parse(value.startedAt)) || !record(value.workouts)
+    || (value.programId !== undefined && !text(value.programId, 120, true)) || (value.programName !== undefined && !text(value.programName, 120, true))) throw new Error("Invalid training phase.");
+  const sequence = value.sequence ?? WORKOUT_SEQUENCE;
+  if (!validSequence(sequence) || !onlyKeys(value.workouts, sequence) || Object.keys(value.workouts).length !== sequence.length) throw new Error("A programme needs 1–12 distinct workouts in its sequence.");
+  for (const key of sequence) {
     const workout = value.workouts[key];
-    if (!record(workout) || !onlyKeys(workout, ["summary", "exercises"]) || !text(workout.summary, 240)) throw new Error("Each phase needs Push, Pull, and Legs workouts.");
-    validatePlanExercises(workout.exercises);
+    if (!record(workout) || !onlyKeys(workout, ["name", "summary", "exercises"]) || !text(workout.summary, 240) || (workout.name !== undefined && !text(workout.name, 120, true))) throw new Error("Each workout needs a name and exercises.");
+    try { validatePlanExercises(workout.exercises); } catch (error) { throw new Error(`${workout.name ?? workoutLabel(key)}: ${error instanceof Error ? error.message : "Check the exercises."}`); }
   }
 }
 export function validateWorkoutTraining(value: unknown): asserts value is WorkoutTraining {
-  if (!record(value) || !onlyKeys(value, ["phaseId", "phaseName", "purpose", "exercises"]) || !text(value.phaseId, 120, true) || !text(value.phaseName, 120, true) || !text(value.purpose, 2000)) throw new Error("Invalid workout phase.");
+  if (!record(value) || !onlyKeys(value, ["phaseId", "phaseName", "purpose", "exercises", "programId", "programName", "workoutName", "sequence"]) || !text(value.phaseId, 120, true) || !text(value.phaseName, 120, true) || !text(value.purpose, 2000)
+    || ["programId", "programName", "workoutName"].some((key) => value[key] !== undefined && !text(value[key], 120, true)) || (value.sequence !== undefined && !validSequence(value.sequence))) throw new Error("Invalid workout phase.");
   validatePlanExercises(value.exercises);
 }
 export function normalizePlanState(value: unknown): PlanState {
   if (!record(value) || !onlyKeys(value, ["currentId", "phases"]) || !text(value.currentId, 120, true) || !Array.isArray(value.phases) || !value.phases.length || value.phases.length > 500) throw new Error("Invalid saved training plan.");
   value.phases.forEach(validateTrainingPhase);
   if (new Set(value.phases.map((phase) => phase.id)).size !== value.phases.length || !value.phases.some((phase) => phase.id === value.currentId)) throw new Error("The current training phase is missing or duplicated.");
-  return structuredClone(value) as PlanState;
+  return { currentId: value.currentId, phases: value.phases.map((phase) => ({ id: phase.id, name: phase.name, purpose: phase.purpose, startedAt: phase.startedAt, programId: phaseProgramId(phase), programName: phaseProgramName(phase), sequence: [...phaseSequence(phase)], workouts: structuredClone(phase.workouts) })) };
 }
 export function currentPhase(state: PlanState): TrainingPhase { return state.phases.find((phase) => phase.id === state.currentId)!; }
 export function mergePlanStates(existing: PlanState | undefined, imported: PlanState | undefined): PlanState | undefined {
@@ -79,11 +87,19 @@ export function mergePlanStates(existing: PlanState | undefined, imported: PlanS
   }
   return normalizePlanState({ currentId: saved.currentId, phases: [...phases.values()] });
 }
-export function newPhase(state: PlanState, name: string, purpose: string, workouts: PlanWorkouts, startedAt = new Date().toISOString(), id = crypto.randomUUID()): PlanState {
-  const phase = { id, name: name.trim(), purpose: purpose.trim(), startedAt, workouts: structuredClone(workouts) };
+export function newPhase(state: PlanState, name: string, purpose: string, workouts: PlanWorkouts, startedAt = new Date().toISOString(), id = crypto.randomUUID(), programme?: { programId: string; programName: string; sequence: WorkoutKey[] }): PlanState {
+  const current = currentPhase(state);
+  const phase = { id, name: name.trim(), purpose: purpose.trim(), startedAt, workouts: structuredClone(workouts), ...(programme ?? { programId: phaseProgramId(current), programName: phaseProgramName(current), sequence: [...phaseSequence(current)] }) };
   validateTrainingPhase(phase);
   return normalizePlanState({ currentId: id, phases: [...state.phases, phase] });
 }
 export function trainingForWorkout(phase: TrainingPhase, workout: WorkoutKey): WorkoutTraining {
-  return { phaseId: phase.id, phaseName: phase.name, purpose: phase.purpose, exercises: structuredClone(phase.workouts[workout].exercises) };
+  if (!phaseSequence(phase).includes(workout)) throw new Error("This workout is not part of the current programme.");
+  return { phaseId: phase.id, phaseName: phase.name, purpose: phase.purpose, programId: phaseProgramId(phase), programName: phaseProgramName(phase), workoutName: workoutLabel(workout, phase), sequence: [...phaseSequence(phase)], exercises: structuredClone(phase.workouts[workout].exercises) };
+}
+export function nextWorkoutForPhase(workout: WorkoutKey, training: WorkoutTraining | undefined, phase: TrainingPhase): WorkoutKey {
+  const sequence = phaseSequence(phase);
+  if ((training?.programId ?? "original-ppl-program") !== phaseProgramId(phase)) return sequence[0];
+  const following = nextWorkout(workout, training?.sequence ?? WORKOUT_SEQUENCE);
+  return sequence.includes(following) ? following : sequence[0];
 }

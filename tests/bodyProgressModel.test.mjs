@@ -28,9 +28,25 @@ test("multiple weigh-ins on one day use the latest edit and deterministic ID tie
   assert.equal(readings.length, 1);
   assert.equal(readings[0].value, 68);
 });
-test("first reached and sustained milestones distinguish isolated readings from consecutive calendar days", () => {
+test("first reached and sustained milestones use a seven-day average of actual readings", () => {
   const readings = combineWeightReadings([], [weight("a", "2026-09-01", 67), weight("b", "2026-09-03", 68), weight("c", "2026-09-04", 66.9), weight("d", "2026-09-05", 67), weight("e", "2026-09-06", 67.1), weight("f", "2026-09-07", 67)]);
-  assert.deepEqual(weightMilestones(readings, goal([67, 70])), [{ target: 67, firstReached: "2026-09-01", sustained: "2026-09-07", currentStreak: 3 }, { target: 70, firstReached: null, sustained: null, currentStreak: 0 }]);
+  assert.deepEqual(weightMilestones(readings, goal([67, 70])), [{ target: 67, firstReached: "2026-09-01", sustained: "2026-09-04", currentStreak: 6 }, { target: 70, firstReached: null, sustained: null, currentStreak: 0 }]);
+});
+
+test("gaps between readings are allowed but two days or a high isolated reading do not qualify", () => {
+  const readings = combineWeightReadings([], [weight('a', '2026-09-01', 67), weight('b', '2026-09-04', 67), weight('c', '2026-09-07', 67)]);
+  assert.equal(weightMilestones(readings, goal())[0].sustained, '2026-09-07');
+  assert.equal(weightMilestones(readings.slice(0, 2), goal())[0].sustained, null);
+  assert.equal(weightMilestones([...readings.slice(0, 2), {date:'2026-09-08', value:67}], goal())[0].sustained, null);
+  assert.equal(weightMilestones([{date:'2026-09-01',value:70},{date:'2026-09-03',value:64},{date:'2026-09-05',value:64}], goal())[0].sustained, null);
+  assert.equal(weightMilestones(readings, {...goal(),minimumReadings:4})[0].sustained, null);
+  assert.equal(weightMilestones(readings, goal([67], 30))[0].sustained, '2026-09-07');
+});
+
+test("milestone windows defensively count duplicate days once and minimum readings are validated", () => {
+  assert.equal(weightMilestones([{date:'2026-09-01',value:67},{date:'2026-09-01',value:67},{date:'2026-09-01',value:67}], goal())[0].sustained,null);
+  for(const minimumReadings of [2,8,3.5,'3']) assert.throws(()=>parseBodyProgress({...emptyBodyProgress(),goal:{...goal(),minimumReadings}}),/Minimum readings/);
+  assert.equal(parseBodyProgress({...emptyBodyProgress(),goal:{...goal(),minimumReadings:5}}).goal.minimumReadings,5);
 });
 test("three readings on a single day cannot earn sustained milestone", () => {
   const readings = combineWeightReadings([], [weight("a", "2026-09-20", 67), weight("b", "2026-09-20", 68), weight("c", "2026-09-20", 69)]);

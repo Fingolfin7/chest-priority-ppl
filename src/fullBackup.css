@@ -1,16 +1,46 @@
 .complete-backup { position:relative; }
-.complete-backup>summary { min-height:36px; padding:0 .7rem; display:flex; align-items:center; cursor:pointer; background:var(--soft); border:1px solid var(--line); border-radius:7px; font:700 .66rem/1 var(--mono); text-transform:uppercase; }
-.complete-backup>summary { list-style:none; gap:.4rem; }
+.complete-backup>summary { min-height:36px; padding:0 .7rem; display:flex; align-items:center; gap:.4rem; cursor:pointer; background:var(--soft); border:1px solid var(--line); border-radius:7px; font:700 .66rem/1 var(--mono); list-style:none; text-transform:uppercase; }
 .complete-backup>summary::-webkit-details-marker { display:none; }
 .complete-backup>summary::after { content:"▾"; color:var(--muted); }
-.complete-backup-panel { position:absolute; z-index:30; right:0; top:calc(100% + .6rem); width:min(440px,calc(100vw - 2rem)); padding:1.25rem; background:var(--surface); border:1px solid var(--line); border-radius:12px; box-shadow:0 15px 45px #0003; max-height:75svh; overflow:auto; }
-.complete-backup-panel h2 { margin:0; font-size:1.15rem; }
-.complete-backup-panel p { font-size:.85rem; color:var(--muted); }
-.complete-backup-panel button { white-space:normal; height:auto; min-height:44px; margin:.3rem .3rem .3rem 0; }
-.backup-file { display:grid; gap:.5rem; margin-top:1.1rem; font-size:.85rem; font-weight:600; }
-.backup-file input { max-width:100%; min-width:0; font-size:.8rem; }
-.backup-photo-choice { display:flex; align-items:center; gap:.6rem; min-height:44px; font-size:.85rem; }
+.complete-backup-panel { position:absolute; z-index:30; top:calc(100% + .6rem); right:0; width:min(440px,calc(100vw - 2rem)); max-height:75svh; padding:1.25rem; overflow:auto; background:var(--surface); border:1px solid var(--line); border-radius:12px; box-shadow:0 15px 45px #0003; }
+.complete-backup-panel.embedded { width:auto; max-height:none; padding:.45rem .2rem .2rem; position:static; overflow:visible; background:transparent; border:0; border-radius:0; box-shadow:none; }
+.complete-backup-panel[hidden] { display:none; }
+.complete-backup-panel h2,.data-workout-panel h2 { margin:0 0 .35rem; font-size:1.05rem; }
+.complete-backup-panel p,.data-workout-panel p { color:var(--muted); font-size:.78rem; line-height:1.5; }
+.complete-backup-panel button,.data-workout-panel button { height:auto; min-height:44px; margin:.25rem .25rem .25rem 0; white-space:normal; }
+.backup-small { margin:.4rem 0; font-size:.69rem !important; }
+.backup-file { margin-top:.8rem; display:grid; gap:.45rem; font-size:.78rem; font-weight:650; }
+.backup-file input { max-width:100%; min-width:0; font-size:.75rem; }
+.backup-photo-choice { min-height:44px; display:flex; align-items:center; gap:.55rem; font-size:.8rem; }
 .backup-photo-choice input { width:18px; height:18px; accent-color:var(--push); }
-.backup-preview { margin-top:1rem; padding-top:1rem; border-top:1px solid var(--line); }
-.backup-notice { padding:.7rem; background:var(--soft); border-radius:6px; overflow-wrap:anywhere; }
-@media(max-width:600px) { .complete-backup-panel { position:fixed; top:115px; right:1rem; left:1rem; width:auto; } }
+.backup-details { margin-top:.65rem; padding-top:.6rem; border-top:1px solid var(--line); }
+.backup-details summary { color:var(--muted); cursor:pointer; font-size:.72rem; }
+.backup-details p { font-size:.72rem; }
+.backup-preview { margin-top:.8rem; padding-top:.8rem; border-top:1px solid var(--line); }
+.backup-preview>strong { font-size:.8rem; }
+.backup-preview p { margin:.45rem 0; }
+.backup-notice { margin:.5rem 0 0; padding:.65rem .7rem; background:var(--soft); border-radius:6px; overflow-wrap:anywhere; }
+.data-menu-tabs { margin-bottom:.55rem; padding:.2rem; display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:.2rem; background:var(--soft); border-radius:8px; }
+.data-menu-tabs button { min-height:44px; padding:.4rem .2rem; color:var(--muted); background:transparent; border:1px solid transparent; border-radius:6px; font:650 .68rem/1.2 var(--sans); }
+.data-menu-tabs button[aria-pressed="true"] { color:var(--ink); background:var(--surface); border-color:var(--line); }
+.data-menu-tabs button:focus-visible { outline:3px solid color-mix(in srgb,var(--push) 45%,transparent); outline-offset:1px; }
+.data-workout-panel { display:grid; gap:.3rem; }
+.data-workout-panel h2 { margin:.25rem .35rem 0; }
+.data-workout-panel>p { margin:.1rem .35rem .35rem; }
+.data-workout-panel .transfer-format { margin:.15rem .35rem .4rem; }
+.data-workout-panel button { min-height:44px; padding:.55rem .6rem; display:flex; align-items:center; justify-content:space-between; gap:.6rem; cursor:pointer; color:var(--ink); background:var(--soft); border:1px solid transparent; border-radius:6px; font:650 .78rem/1.25 var(--sans); text-align:left; }
+.data-workout-panel button:hover:not(:disabled) { border-color:var(--input-line); }
+.data-workout-panel button:disabled { cursor:not-allowed; opacity:.45; }
+.data-workout-panel button small { color:var(--muted); font:500 .65rem/1.3 var(--sans); text-align:right; }
+.data-workout-panel .transfer-destination { display:grid; grid-template-columns:25px minmax(0,1fr) auto; }
+.data-workout-panel .transfer-back { min-height:36px; padding:.2rem .35rem; color:var(--muted); background:transparent; font-size:.72rem; }
+.data-workout-panel .transfer-paste { display:grid; gap:.35rem; margin:.3rem .35rem; color:var(--muted); font-size:.72rem; }
+.data-workout-panel .transfer-paste textarea { width:100%; min-height:130px; resize:vertical; padding:.6rem; color:var(--ink); background:var(--input); border:1px solid var(--input-line); border-radius:6px; font:400 .72rem/1.5 var(--mono); }
+.data-workout-panel .export-separator { height:1px; margin:.15rem .2rem; background:var(--line); }
+.data-workout-panel .import-result { padding:.65rem; background:var(--soft); border-radius:6px; overflow-wrap:anywhere; }
+.data-workout-panel .import-result.success { color:var(--legs-soft-ink); }
+.data-workout-panel .import-result.error { color:var(--pull-soft-ink); }
+@media(max-width:600px) {
+  .complete-backup-panel:not(.embedded) { position:fixed; top:115px; right:1rem; left:1rem; width:auto; max-height:calc(100svh - 135px); }
+  .data-menu-tabs button { font-size:.64rem; }
+}

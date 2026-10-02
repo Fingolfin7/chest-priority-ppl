@@ -3,6 +3,8 @@ import { normalizePlanState, validateTrainingPhase, validateWorkoutTraining, typ
 import { canonicalExerciseName, type HistoryMap, type SetEntry } from "./historyMigration.ts";
 import type { DraftMap } from "./drafts.ts";
 import type { ActiveWorkout, CompletedWorkout, WorkoutKey, WorkoutSync } from "./sessionModel.ts";
+import { isWorkoutKey } from "./sessionModel.ts";
+import { emptyBodyProgress, MEASUREMENT_KEYS, mergeBodyProgress, parseBodyProgress, type BodyProgressData } from "./bodyProgressModel.ts";
 
 export type SyncSnapshot = {
   history: HistoryMap;
@@ -15,6 +17,7 @@ export type SyncSnapshot = {
   bodyweight: string;
   sessionNote: string;
   planState?: PlanState;
+  bodyProgress?: BodyProgressData;
 };
 
 // One shared map object, with scalar registers at stable paths. Creating nested
@@ -30,7 +33,6 @@ const snapshotCache = new WeakMap<Automerge.Doc<SyncData>, SyncSnapshot>();
 const conflictCache = new WeakMap<Automerge.Doc<SyncData>, Map<string, ReturnType<typeof alternatives>>>();
 type StableSet = SetEntry & { id?: string };
 const UNASSIGNED = "unassigned";
-const WORKOUTS = ["push", "pull", "legs"];
 const STATUSES = ["unsynced", "syncing", "synced", "error", "legacy"];
 const MAX_FIELDS = 250_000;
 const MAX_TEXT = 100_000;
@@ -119,7 +121,45 @@ function flatten(snapshot: SyncSnapshot, relatedWorkouts = snapshot.completed): 
     put(["state", "phaseId"], snapshot.planState.currentId);
     snapshot.planState.phases.forEach((phase) => { put(["phase", phase.id, "alive"], true); put(["phase", phase.id, "definition"], JSON.stringify(phase)); });
   }
+  if (snapshot.bodyProgress) {
+    const body = parseBodyProgress(snapshot.bodyProgress);
+    // Immutable record versions and explicit deletion versions form a union.
+    // An old device can re-send an old reading without reviving a deleted one.
+    body.weighIns.forEach((record) => put(["body", "weight", record.id, record.updatedAt], JSON.stringify(record)));
+    body.measurements.forEach((record) => put(["body", "measurement", record.id, record.updatedAt], JSON.stringify(record)));
+    body.deletions.forEach((record) => put(["body", "deletion", record.kind, record.id, record.deletedAt], JSON.stringify(record)));
+    put(["body", "goal", body.goal.updatedAt], JSON.stringify(body.goal));
+  }
   return fields;
+}
+
+function bodyRecord(parts: string[], value: Scalar): BodyProgressData {
+  if (!(["weight", "measurement"].includes(parts[1]) && parts.length === 4
+      || parts[1] === "deletion" && parts.length === 5 || parts[1] === "goal" && parts.length === 3)) throw new Error("Invalid body progress sync path.");
+  if (typeof value !== "string") throw new Error("Invalid body progress sync record.");
+  const raw: unknown = JSON.parse(value);
+  const allowed = parts[1] === "weight" ? ["id", "date", "kg", "note", "updatedAt"]
+    : parts[1] === "measurement" ? ["id", "date", "note", "updatedAt", ...MEASUREMENT_KEYS]
+      : parts[1] === "deletion" ? ["id", "kind", "deletedAt"] : ["targets", "sustainedDays", "minimumReadings", "updatedAt"];
+  if (!raw || typeof raw !== "object" || Array.isArray(raw) || Object.keys(raw).some((key) => !allowed.includes(key))) throw new Error("Body progress sync records cannot contain unknown fields.");
+  let body = emptyBodyProgress();
+  if (parts[1] === "weight" && parts.length === 4) body = parseBodyProgress({ ...body, weighIns: [raw] });
+  else if (parts[1] === "measurement" && parts.length === 4) body = parseBodyProgress({ ...body, measurements: [raw] });
+  else if (parts[1] === "deletion" && parts.length === 5) body = parseBodyProgress({ ...body, deletions: [raw] });
+  else if (parts[1] === "goal" && parts.length === 3) body = parseBodyProgress({ ...body, goal: raw });
+  else throw new Error("Invalid body progress sync path.");
+  const record = body.weighIns[0] ?? body.measurements[0] ?? body.deletions[0] ?? body.goal;
+  if (parts.at(-1) !== ("deletedAt" in record ? record.deletedAt : record.updatedAt)
+      || ("id" in record && record.id !== parts[parts[1] === "deletion" ? 3 : 2])
+      || ("kind" in record && record.kind !== parts[2])) throw new Error("Invalid body progress sync identity.");
+  return body;
+}
+
+function projectedValue(parts: string[], value: Scalar, choices: ReturnType<typeof alternatives>): Scalar {
+  // A same-ID, same-timestamp import converges using the same lexical tie break
+  // as the standalone store. All alternatives are validated before selection.
+  if (parts[0] === "body") return [value, ...choices.map((choice) => choice.value)].reduce((a, b) => String(a) >= String(b) ? a : b);
+  return parts.at(-1) === "alive" && choices.some((choice) => choice.value === false) ? false : value;
 }
 
 function decoded(value: unknown, conflictValue = false): Scalar {
@@ -183,12 +223,15 @@ export function updateSyncDoc(doc: Automerge.Doc<SyncData>, previous: SyncSnapsh
   const writes: Flat = new Map();
   after.forEach((value, key) => {
     if (before.get(key) === value) return;
+    const parts: string[] = JSON.parse(key);
+    // Versions are immutable even during journal replay or same-stamp edits.
+    // Keep the deterministic winner instead of replacing it with an older copy.
+    if (parts[0] === "body" && Object.hasOwn(doc.values, key) && String(readFields(doc).get(key)) >= String(value)) return;
     // Crash-journal replay must not duplicate operations or resolve a conflict.
     if (Object.hasOwn(doc.values, key) && decoded(doc.values[key]) === value) return;
     writes.set(key, value);
     // Concurrent deletion must not silently discard an edit. Touch the record's
     // membership register so delete/edit becomes an explicit retained conflict.
-    const parts: string[] = JSON.parse(key);
     recordParents(parts).forEach((parent) => { if (after.get(parent) === true) writes.set(parent, true); });
     const activeScope = parts[0] === "draft" || parts[0] === "draftExercise" || parts[0] === "active" || parts[0] === "choice" ? parts[1] : parts[0] === "set" && parts[1] === "draft" ? parts[2] : null;
     if (activeScope && activeScope === next.activeWorkout?.id) writes.set(pathKey("state", "activeId"), activeScope);
@@ -219,7 +262,7 @@ export function updateSyncDoc(doc: Automerge.Doc<SyncData>, previous: SyncSnapsh
     const choices = alternatives(changed, key);
     choices.forEach((choice) => validateField(parts, choice.value));
     if (choices.length) conflicts.set(key, choices); else conflicts.delete(key);
-    fields.set(key, parts.at(-1) === "alive" && choices.some((choice) => choice.value === false) ? false : value);
+    fields.set(key, projectedValue(parts, value, choices));
   }
   if (fields.size > MAX_FIELDS) throw new Error("The sync document contains too many fields.");
   fieldCache.set(changed, fields); conflictCache.set(changed, conflicts);
@@ -311,6 +354,7 @@ function checkpoint(raw: Scalar) {
 
 function validateField(parts: string[], value: Scalar) {
   const kind = parts[0]; const field = parts.at(-1);
+  if (kind === "body") { bodyRecord(parts, value); return; }
   let validPath = false;
   if (kind === "workout" && parts.length === 3) validPath = ["alive", "workout", "startedAt", "endedAt", "bodyweight", "note", "sync", "training"].includes(field!);
   if (kind === "active" && parts.length === 3) validPath = ["alive", "workout", "startedAt", "training"].includes(field!);
@@ -332,7 +376,7 @@ function validateField(parts: string[], value: Scalar) {
   if (field === "order") { if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0 || value > 100_000) throw new Error("Invalid exercise order."); return; }
   if (field === "activeId" && value === null) return;
   if (typeof value !== "string") throw new Error("Sync data contains invalid text.");
-  if ((field === "workout" || field === "next") && !WORKOUTS.includes(value)) throw new Error("Invalid workout type.");
+  if ((field === "workout" || field === "next") && !isWorkoutKey(value)) throw new Error("Invalid workout type.");
   if (field === "priority" && !["must", "optional"].includes(value)) throw new Error("Invalid exercise priority.");
   if (["startedAt", "endedAt", "savedAt"].includes(field!) && !Number.isFinite(Date.parse(value))) throw new Error("Invalid workout date.");
   if (field === "bodyweight" && kind === "workout" && value && (!Number.isFinite(Number(value)) || Number(value) <= 0)) throw new Error("Invalid workout bodyweight.");
@@ -359,7 +403,7 @@ function readFields(doc: Automerge.Doc<SyncData>): Flat {
     if (choices.length) conflicts.set(key, choices);
     // Deletion wins the projection until the user resolves its conflict. The
     // retained edit is still available and choosing Keep restores the record.
-    fields.set(key, parts.at(-1) === "alive" && choices.some((choice) => choice.value === false) ? false : value);
+    fields.set(key, projectedValue(parts, value, choices));
   }
   fieldCache.set(doc, fields); conflictCache.set(doc, conflicts);
   return fields;
@@ -413,6 +457,7 @@ function projected(fields: Flat): SyncSnapshot {
     };
     const training = get([...prefix, "training"]);
     if (typeof training === "string") workout.training = parseTraining(training);
+    if (workout.training?.sequence && !workout.training.sequence.includes(workout.workout)) throw new Error("A synced workout is missing from its training sequence.");
     if (Date.parse(workout.endedAt) < Date.parse(workout.startedAt)) throw new Error("A synced workout ends before it starts.");
     allWorkouts.push(workout);
     if (live(...prefix)) completed.push(workout);
@@ -443,6 +488,7 @@ function projected(fields: Flat): SyncSnapshot {
   if (activeWorkout) {
     const training = get(["active", activeWorkout.id, "training"]);
     if (typeof training === "string") activeWorkout.training = parseTraining(training);
+    if (activeWorkout.training?.sequence && !activeWorkout.training.sequence.includes(activeWorkout.workout)) throw new Error("An active workout is missing from its training sequence.");
   }
   const scope = activeWorkout?.id ?? UNASSIGNED;
   const drafts: DraftMap = Object.fromEntries(ids("draftExercise").filter(([owner, name]) => owner === scope && live("draftExercise", owner, name)).map(([owner, name]) => [name, sets("draft", owner, name)]));
@@ -462,7 +508,17 @@ function projected(fields: Flat): SyncSnapshot {
   const phases = ids("phase").filter(([id]) => live("phase", id)).map(([id]) => parsePhase(text(["phase", id, "definition"])));
   const phaseId = get(["state", "phaseId"]);
   const planState = phases.length && typeof phaseId === "string" ? normalizePlanState({ currentId: phaseId, phases: phases.sort((a, b) => a.startedAt.localeCompare(b.startedAt) || a.id.localeCompare(b.id)) }) : undefined;
-  return { ...(planState ? { planState } : {}), history, completed, drafts, activeWorkout, next: text(["state", "next"], "push") as WorkoutKey, checkpoints, exerciseChoices,
+  let bodyProgress: BodyProgressData | undefined;
+  for (const { parts, value } of entries) if (parts[0] === "body") {
+    const record = bodyRecord(parts, value);
+    bodyProgress ??= emptyBodyProgress();
+    bodyProgress.weighIns.push(...record.weighIns);
+    bodyProgress.measurements.push(...record.measurements);
+    bodyProgress.deletions.push(...record.deletions);
+    if (parts[1] === "goal") bodyProgress.goal = mergeBodyProgress({ ...emptyBodyProgress(), goal: bodyProgress.goal }, record).goal;
+  }
+  if (bodyProgress) bodyProgress = mergeBodyProgress(emptyBodyProgress(), bodyProgress);
+  return { ...(planState ? { planState } : {}), ...(bodyProgress ? { bodyProgress } : {}), history, completed, drafts, activeWorkout, next: text(["state", "next"], "push") as WorkoutKey, checkpoints, exerciseChoices,
     bodyweight: text(["draft", scope, "bodyweight"], ""), sessionNote: text(["draft", scope, "note"], "") };
 }
 
@@ -505,6 +561,7 @@ export function listSyncConflicts(doc: Automerge.Doc<SyncData>): SyncConflict[] 
     const unique = Array.from(new Map(options.map((option) => [JSON.stringify(option.value), option])).values());
     if (unique.length < 2) continue; // Identical independent imports are not conflicts.
     const parts = parsePath(key);
+    if (parts[0] === "body") continue; // Timestamped body records converge through their model merge.
     result.push({ key, label: conflictLabel(parts, fields), options: unique.map(({ id, value }) => ({ id, value: parts.at(-1) === "alive" ? (value ? "Keep record" : "Delete record") : value === null ? "None" : String(value) })) });
   }
   return result.sort((a, b) => a.key.localeCompare(b.key));
