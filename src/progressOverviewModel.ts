@@ -3,11 +3,10 @@ import type { TrainingPhase } from './planModel';
 import { localDay, MEASUREMENT_KEYS, type BodyMeasurement, type WeightReading } from './bodyProgressModel.ts';
 
 export function suggestedWeightMilestones(latest: number | undefined, target: number): number[] {
-  if (latest === undefined || !Number.isFinite(target) || target <= latest) return [];
-  const step = target - latest > 5 ? 2 : 1;
-  const first = Math.floor(latest / step) * step + step;
+  if (latest === undefined || !Number.isFinite(latest) || !Number.isFinite(target) || latest <= 0 || target > 500 || target <= latest) return [];
+  const first = Math.floor(latest) + 1;
   const result: number[] = [];
-  for (let value = first; value < target && result.length < 4; value += step) result.push(value);
+  for (let value = first; value < target; value += 1) result.push(value);
   return result;
 }
 

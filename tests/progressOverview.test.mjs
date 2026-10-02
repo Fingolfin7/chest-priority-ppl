@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { suggestedWeightMilestones, phaseProgress } from '../src/progressOverviewModel.ts';
 test('suggested milestones stay between the observed weight and the chosen goal', () => {
-  assert.deepEqual(suggestedWeightMilestones(64.5,70),[66,68]);
+  assert.deepEqual(suggestedWeightMilestones(64.5,70),[65,66,67,68,69]);
   assert.deepEqual(suggestedWeightMilestones(68,70),[69]);
   assert.deepEqual(suggestedWeightMilestones(undefined,70),[]);
   assert.deepEqual(suggestedWeightMilestones(71,70),[]);
