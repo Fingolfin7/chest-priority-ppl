@@ -12,10 +12,12 @@ export function suggestedWeightMilestones(latest: number | undefined, target: nu
 }
 
 export function phaseProgress(phase: TrainingPhase, sessions: CompletedWorkout[], readings: WeightReading[], measurements: BodyMeasurement[], endedAt?: string) {
-  const start = localDay(new Date(phase.startedAt));
+  const training = sessions.filter((session) => workoutBelongsToPhase(session, phase)).sort((a, b) => a.endedAt.localeCompare(b.endedAt));
+  const firstSession = training[0];
+  const startedAt = phase.id === "original-ppl-v1" && firstSession && firstSession.endedAt < phase.startedAt ? (firstSession.startedAt ?? firstSession.endedAt) : phase.startedAt;
+  const start = localDay(new Date(startedAt));
   const end = endedAt ? localDay(new Date(endedAt)) : undefined;
   const during = (date: string) => date >= start && (!end || date < end);
-  const training = sessions.filter((session) => workoutBelongsToPhase(session, phase)).sort((a, b) => a.endedAt.localeCompare(b.endedAt));
   const weights = readings.filter((reading) => during(reading.date)).sort((a, b) => a.date.localeCompare(b.date));
   const tape = MEASUREMENT_KEYS.flatMap((key) => {
     const records = measurements.filter((record) => during(record.date) && record[key] !== undefined).sort((a, b) => a.date.localeCompare(b.date) || a.updatedAt.localeCompare(b.updatedAt));
@@ -29,6 +31,7 @@ export function phaseProgress(phase: TrainingPhase, sessions: CompletedWorkout[]
     if (best) lifts.set(exercise.name, [...(lifts.get(exercise.name) ?? []), { ...best, date: session.endedAt }]);
   }
   return {
+    startedAt,
     workouts: training.length,
     weight: weights.length >= 2 ? { first: weights[0].value, latest: weights.at(-1)!.value, count: weights.length } : null,
     measurements: tape,

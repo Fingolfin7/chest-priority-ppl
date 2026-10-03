@@ -33,3 +33,16 @@ test('phase insights exclude other phases and require comparable records', () =>
   assert.equal(phaseProgress(phase,[],[readings[1]],[]).weight,null);
   assert.deepEqual(phaseProgress(phase,[],[],[{date:'2026-09-11',waist:80,updatedAt:'2026-09-11T08:00:00Z'},{date:'2026-09-11',waist:81,updatedAt:'2026-09-11T09:00:00Z'}]).measurements,[]);
 });
+
+
+test('original phase uses its first historical PPL session for its date and weight comparison', () => {
+  const phase={id:'original-ppl-v1',startedAt:'2026-10-02T00:00:00Z'};
+  const sessions=[{workout:'pull',startedAt:'2026-08-25T09:00:00Z',endedAt:'2026-08-25T10:00:00Z',exercises:[]}, {workout:'upper',endedAt:'2026-08-01T10:00:00Z',exercises:[]}];
+  const before=structuredClone(sessions);
+  const readings=[{date:'2026-08-24',value:63},{date:'2026-08-25',value:64},{date:'2026-10-01',value:64.5}];
+  const result=phaseProgress(phase,sessions,readings,[]);
+  assert.equal(result.startedAt,sessions[0].startedAt);
+  assert.deepEqual(result.weight,{first:64,latest:64.5,count:2});
+  assert.equal(phaseProgress({...phase,id:'new-phase'},sessions,readings,[]).startedAt,phase.startedAt);
+  assert.deepEqual(sessions,before);
+});
