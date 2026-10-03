@@ -1,8 +1,9 @@
 import { phaseProgramId, phaseProgramName, phaseSequence, type PlanExercise, type TrainingPhase, type WorkoutTraining } from "./planModel.ts";
 import { createActiveWorkout, type ActiveWorkout } from "./sessionModel.ts";
+import { exerciseCatalog } from "./exerciseLibrary.ts";
 
 // Concrete alternatives use the same names as programme history and progression.
-export function freeSessionCatalog(phase: TrainingPhase): PlanExercise[] {
+export function freeSessionCatalog(phase: TrainingPhase, saved: PlanExercise[] = []): PlanExercise[] {
   const exercises = new Map<string, PlanExercise>();
   for (const key of phaseSequence(phase)) {
     for (const slot of phase.workouts[key].exercises) {
@@ -14,7 +15,7 @@ export function freeSessionCatalog(phase: TrainingPhase): PlanExercise[] {
       }
     }
   }
-  return [...exercises.values()];
+  return exerciseCatalog([...saved, ...exercises.values()]).map((exercise) => ({ ...exercise, priority: "optional" }));
 }
 
 export function createFreeSession(phase: TrainingPhase, startedAt?: string, id?: string): ActiveWorkout {

@@ -1,4 +1,6 @@
-const CACHE_NAME = "rolling-ppl-v39";
+const CACHE_NAME = "rolling-ppl-v40";
+// Keep on-demand library images across app upgrades. Never cache unrelated hosts.
+const EXERCISE_IMAGE_CACHE = "rolling-ppl-exercise-images-v1";
 const EXERCISES = [
   "bench", "incline-press", "chest-press-machine", "lateral-raise", "pushdown", "overhead-db-extension",
   "barbell-row", "lat-pulldown", "pullups", "rear-delt-fly", "barbell-curl", "hammer-curl",
@@ -36,7 +38,7 @@ self.addEventListener("install", (event) => {
 self.addEventListener("activate", (event) => {
   event.waitUntil((async () => {
     const names = await caches.keys();
-    await Promise.all(names.filter((name) => name !== CACHE_NAME).map((name) => caches.delete(name)));
+    await Promise.all(names.filter((name) => name.startsWith("rolling-ppl-") && name !== CACHE_NAME && name !== EXERCISE_IMAGE_CACHE).map((name) => caches.delete(name)));
     await self.clients.claim();
     // Do not navigate clients inside activation: navigation can wait for this
     // worker to activate, deadlocking the page. The next normal reload uses
@@ -45,7 +47,24 @@ self.addEventListener("activate", (event) => {
 });
 
 self.addEventListener("fetch", (event) => {
-  if (event.request.method !== "GET" || new URL(event.request.url).origin !== self.location.origin) return;
+  if (event.request.method !== "GET") return;
+  const url = new URL(event.request.url);
+  if (url.origin === "https://raw.githubusercontent.com" && /^\/yuhonas\/free-exercise-db\/[a-f0-9]{40}\/exercises\/.+\.jpg$/.test(url.pathname)) {
+    event.respondWith((async () => {
+      const cache = await caches.open(EXERCISE_IMAGE_CACHE);
+      const cached = await cache.match(event.request);
+      if (cached) return cached;
+      try {
+        const response = await fetch(event.request);
+        if (response.ok) {
+          try { await cache.put(event.request, response.clone()); } catch { /* Storage full: still show the online image. */ }
+        }
+        return response;
+      } catch { return Response.error(); }
+    })());
+    return;
+  }
+  if (url.origin !== self.location.origin) return;
   event.respondWith((async () => {
     if (new URL(event.request.url).pathname.endsWith("/cloud-photo-config.json")) {
       // Public configuration changes independently of the app bundle. Retain a

@@ -1,22 +1,19 @@
 import { useState } from "react";
 import type { PlanExercise } from "./planModel";
 import type { DraftMap } from "./drafts";
+import { ExercisePicker } from "./ExercisePicker";
 
 export function FreeSessionPicker({ catalog, selected, drafts, nextLabel, onAdd, onRemove }: {
   catalog: PlanExercise[]; selected: PlanExercise[]; drafts: DraftMap; nextLabel: string;
   onAdd: (exercise: PlanExercise) => void; onRemove: (name: string) => void;
 }) {
-  const [search, setSearch] = useState("");
   const [open, setOpen] = useState(!selected.length);
-  const available = catalog.filter((exercise) => !selected.some((item) => item.name === exercise.name) && exercise.name.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase()));
   return <section className="free-session-picker" aria-label="Free session exercises">
     <p>Choose exercises as you go. Your usual targets and history carry over. <strong>{nextLabel} stays next.</strong></p>
     <details open={open} onToggle={(event) => setOpen(event.currentTarget.open)}>
       <summary>Add exercise</summary>
       <div className="free-picker-content">
-        <label>Find an exercise<input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search your programme" /></label>
-        <div className="free-picker-options">{available.map((exercise) => <button type="button" key={exercise.name} disabled={selected.length >= 30} onClick={() => { onAdd(exercise); setSearch(""); setOpen(false); }}><strong>{exercise.name}</strong><small>{exercise.sets} sets · {exercise.reps} reps</small><span aria-hidden="true">+</span></button>)}</div>
-        {!available.length && <p>{search ? "No matching exercises." : "All programme exercises have been added."}</p>}
+        <ExercisePicker catalog={catalog} excluded={selected.map((exercise) => exercise.name)} disabled={selected.length >= 30} prescriptions onSelect={(exercise) => { onAdd(exercise); setOpen(false); }} />
       </div>
     </details>
     {selected.length > 0 && <div className="free-selected">{selected.map((exercise) => {

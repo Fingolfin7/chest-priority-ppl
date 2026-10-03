@@ -64,7 +64,13 @@ The dev server runs at `http://127.0.0.1:4173`, an origin already allowed by Aut
 
 ## Free sessions
 
-In **Train**, choose **Start free session**, then **Add exercise**. Search across your current programme and add exercises whenever you need them. Alternatives such as pulldowns and pull-ups are separate choices with their own histories. Each chosen exercise keeps its programme set/rep prescription and uses the usual progression targets from its latest logged sets.
+In **Train**, choose **Start free session**, then **Add exercise**. Search the shared 876-exercise library by name, muscle or equipment, preview an exercise, and choose **Use this exercise**. Alternatives such as pulldowns and pull-ups are separate choices with their own histories. Programme exercises keep their set/rep prescriptions; other exercises start with editable logging defaults. Targets use the latest logged sets for that exact exercise name. The logger records reps, not timed holds or distances.
+
+**Plan → Choose from exercise library** uses the same catalogue and previews. Choosing a definition keeps that plan row's sets, reps, rest and priority. Type a custom name in a plan or use **Create** in the free-session search. Custom exercises become reusable after saving a plan or finishing a session, and travel with the existing backup/device-sync records.
+
+Exercise definitions are separate from prescriptions. The public-domain Free Exercise DB snapshot is bundled for offline search; its images load only when a preview or exercise card is displayed. Downloaded library images are cached separately and retained across app upgrades. An unseen image needs internet; missing images do not block logging. The original programme's images remain bundled and available offline. Existing names, storage keys, plans, records and backup schemas are preserved; adopting the library does not rewrite history.
+
+Upstream definitions and image URLs are pinned to a commit. To deliberately refresh the catalogue, run `node scripts/import-exercise-catalog.mjs <full-upstream-commit-sha>` and review the changes and identity mappings in `src/exerciseLibrary.ts`. Keep older exercise identities available if upstream ever removes a record. Source license: `src/data/FREE-EXERCISE-DB-LICENSE.md`.
 
 Save exercises and finish as usual. The session appears in Sessions and updates the same lift history used by your main programme, while your queued programme workout stays next. Selections and entered sets recover after a reload and are included in device sync and backups. An exercise with entered sets cannot be removed until those sets are cleared.
 

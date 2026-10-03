@@ -18,7 +18,7 @@ const bench = freeSessionCatalog(phase).find((exercise) => exercise.name === 'Ba
 
 test('catalog keeps programme prescriptions and separate alternative identities', () => {
   const catalog = freeSessionCatalog(phase);
-  assert.equal(catalog.length, 19);
+  assert.equal(catalog.length, 876);
   assert.equal(new Set(catalog.map((exercise) => exercise.name)).size, catalog.length);
   assert.equal(bench.sets, phase.workouts.push.exercises[0].sets);
   assert.equal(bench.reps, phase.workouts.push.exercises[0].reps);
@@ -31,8 +31,8 @@ test('catalog keeps programme prescriptions and separate alternative identities'
   }
   const custom = { ...phase, ...programPreset('upper-lower'), sequence: ['upper', 'lower'] };
   assert.ok(freeSessionCatalog(custom).some((exercise) => exercise.name === 'Pull-ups'));
-  assert.equal(freeSessionCatalog(custom).some((exercise) => exercise.name === 'Chest press machine'), false);
-  catalog[0].sets = '1';
+  assert.equal(freeSessionCatalog(custom).some((exercise) => exercise.name === 'Chest press machine'), true);
+  catalog.find((exercise) => exercise.name === bench.name).sets = '1';
   assert.equal(phase.workouts.push.exercises[0].sets, bench.sets);
 });
 

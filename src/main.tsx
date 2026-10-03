@@ -29,8 +29,11 @@ import { PlanPanel, SessionPlanEditor } from "./PlanPanel";
 import { currentPhase, trainingForWorkout, normalizePlanState, phaseSequence, phaseProgramName, phaseProgramId, nextWorkoutForPhase, PLAN_STORAGE_KEY, type TrainingPhase, type PlanExercise, type PlanWorkouts } from "./planModel";
 import { createFreeSession, freeSessionCatalog, addFreeSessionExercise } from "./freeSession";
 import { FreeSessionPicker } from "./FreeSessionPicker";
+import { ExerciseImages } from "./ExerciseImages";
+import { rememberedExercises } from "./exerciseLibrary";
 import "./styles.css";
 import "./redesign.css";
+import "./exerciseLibrary.css";
 
 type Theme = "light" | "dark";
 type AppView = "train" | "sessions" | "progress" | "plan";
@@ -102,8 +105,7 @@ const exerciseWorkouts = Object.fromEntries(WORKOUT_SEQUENCE.flatMap((workout) =
 
 
 function DemoStrip({ demo, exercise, onOpen }: { demo: Demo; exercise: string; onOpen: (image: LightboxImage) => void }) {
-  const poses = [{ src: `./exercises/${demo.slug}-0.jpg`, alt: `${demo.label}: first position` }, { src: `./exercises/${demo.slug}-1.jpg`, alt: `${demo.label}: second position` }];
-  return <figure className="demo-strip"><div className="poses"><button className="image-button" type="button" onClick={() => onOpen(poses[0])} aria-label={`Enlarge ${poses[0].alt}`}><img src={poses[0].src} alt={poses[0].alt} loading="lazy" /></button><span aria-hidden="true">→</span><button className="image-button" type="button" onClick={() => onOpen(poses[1])} aria-label={`Enlarge ${poses[1].alt}`}><img src={poses[1].src} alt={poses[1].alt} loading="lazy" /></button></div><figcaption>{demo.label}</figcaption><a className="image-source" href="https://github.com/yuhonas/free-exercise-db" target="_blank" rel="noreferrer" aria-label={`Public-domain image source for ${exercise}`}>source</a></figure>;
+  return <figure className="demo-strip"><ExerciseImages key={demo.slug} slug={demo.slug} label={demo.label} onOpen={onOpen} /><figcaption>{demo.label}</figcaption><a className="image-source" href="https://github.com/yuhonas/free-exercise-db" target="_blank" rel="noreferrer" aria-label={`Public-domain image source for ${exercise}`}>source</a></figure>;
 }
 
 function WorkoutClock({ startedAt, endedAt }: { startedAt: string; endedAt?: string }) {
@@ -262,7 +264,8 @@ function App({ manager }: { manager: PeerSyncManager }) {
   const nextKey = sequence.includes(next) ? next : sequence[0];
   const activeExercises = useMemo(() => activeWorkout ? (activeWorkout.training?.exercises ?? defaultWorkouts[activeWorkout.workout]?.exercises ?? []) : [], [activeWorkout]);
   const isFree = activeWorkout?.training?.sessionKind === "free";
-  const freeCatalog = freeSessionCatalog(planState.phases.find((item) => item.id === activeWorkout?.training?.phaseId) ?? phase);
+  const savedExercises = useMemo(() => rememberedExercises(planState.phases, completed, activeExercises), [planState, completed, activeExercises]);
+  const freeCatalog = useMemo(() => freeSessionCatalog(planState.phases.find((item) => item.id === activeWorkout?.training?.phaseId) ?? currentPhase(planState), savedExercises), [planState, activeWorkout, savedExercises]);
   const viewWorkouts: PlanWorkouts = { ...phase.workouts, ...(activeWorkout ? { [activeWorkout.workout]: { name: workoutLabel(activeWorkout.workout, activeWorkout.training), summary: activeWorkout.training?.phaseName ?? "Original workout", exercises: activeExercises } } : {}) };
   const viewSequence = activeWorkout && !sequence.includes(activeWorkout.workout) ? [activeWorkout.workout, ...sequence] : sequence;
   const sessionDefinitions = Object.fromEntries([...new Set([...planState.phases.flatMap(phaseSequence), ...completed.map((session) => session.workout)])].map((key) => {
@@ -439,7 +442,7 @@ function App({ manager }: { manager: PeerSyncManager }) {
     <main>
       {appView === "train" ? <><TrainingRail next={nextKey} phase={phase} active={activeWorkout} finishEndedAt={finishEndedAt ?? undefined} finishing={finishing} latest={latest} syncBusy={autumnBusy} onSetNext={(workout) => { setNext(workout); setActiveTab(workout); }} onStart={startWorkout} onFinish={beginFinish} onCancel={cancelWorkout} onSync={syncWorkout} />
         <div className={`training-phase-note ${!activeWorkout ? "has-free-start" : ""}`}><span>{activeWorkout?.training?.programName ?? phaseProgramName(phase)} / <strong>{activeWorkout?.training?.phaseName ?? (activeWorkout ? "Original workout" : phase.name)}</strong></span>{!activeWorkout && <button className="text-action free-session-start" type="button" onClick={startFreeSession}>Start free session</button>}{activeWorkout && !isFree && !finishing && <button className="text-action" type="button" onClick={() => setAdjusting(!adjusting)}>{adjusting ? "Close adjustments" : "Adjust this workout"}</button>}</div>
-        {adjusting && activeWorkout && <SessionPlanEditor key={activeWorkout.id} exercises={activeExercises} draftsWithSets={Object.entries(drafts).filter(([, sets]) => sets.some((set) => set.load.trim() || set.reps.trim())).map(([name]) => name)} onClose={() => setAdjusting(false)} onSave={(exercises) => {
+        {adjusting && activeWorkout && <SessionPlanEditor key={activeWorkout.id} exercises={activeExercises} saved={savedExercises} draftsWithSets={Object.entries(drafts).filter(([, sets]) => sets.some((set) => set.load.trim() || set.reps.trim())).map(([name]) => name)} onClose={() => setAdjusting(false)} onSave={(exercises) => {
           try { setActiveWorkout({ ...activeWorkout, training: { ...(activeWorkout.training ?? trainingForWorkout(defaultPlanState().phases[0], activeWorkout.workout)), exercises } }); setAdjusting(false); return ""; } catch (error) { return error instanceof Error ? error.message : "Unable to save session adjustments."; }
         }} />}
         {isFree && activeWorkout && !finishing && <FreeSessionPicker catalog={freeCatalog} selected={activeExercises} drafts={drafts} nextLabel={workoutLabel(nextKey, phase)} onAdd={addFreeExercise} onRemove={removeFreeExercise} />}

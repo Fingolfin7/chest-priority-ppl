@@ -1,0 +1,35 @@
+.exercise-library { min-width: 0; display: grid; gap: 12px; }
+.exercise-library label { display: grid; gap: 7px; font-size: .85rem; }
+.exercise-library input, .exercise-library select { width: 100%; min-width: 0; border: 1px solid var(--line); border-radius: 8px; padding: 12px; background: var(--bg); color: var(--ink); }
+.exercise-library-filters { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.exercise-library-count { margin: 0; color: var(--muted); font-size: .8rem; }
+.exercise-library-results { max-height: 330px; overflow-y: auto; display: grid; gap: 5px; padding: 2px; }
+.exercise-library-results > button { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 12px; padding: 14px; background: var(--bg); color: var(--ink); border: 1px solid var(--line); border-radius: 8px; text-align: left; cursor: pointer; }
+.exercise-library-results strong { font-size: .9rem; overflow-wrap: anywhere; }
+.exercise-library-results small { grid-column: 1; color: var(--muted); }
+.exercise-library-results span { grid-column: 2; grid-row: 1 / 3; align-self: center; }
+.exercise-library-results button:hover, .exercise-library-results button[aria-pressed="true"] { border-color: var(--push); }
+.exercise-library-preview { border-top: 2px solid var(--push); padding-top: 16px; }
+.exercise-library-preview-heading { display: flex; align-items: start; justify-content: space-between; gap: 12px; }
+.exercise-library-preview h4 { margin: 0; font-size: 1.1rem; overflow-wrap: anywhere; }
+.exercise-library-preview-heading button { flex-shrink: 0; }
+.exercise-library-preview > p { font-size: .85rem; line-height: 1.6; }
+.exercise-library-cue { white-space: pre-line; max-height: 180px; overflow-y: auto; }
+.exercise-library-prescription { display: grid; grid-template-columns: 1fr 1fr 2fr; gap: 12px; margin: 16px 0; }
+.exercise-library-preview > .primary-action { margin-top: 12px; }
+.poses { grid-template-columns: 1fr 1fr; grid-template-rows: minmax(0, 1fr); gap: 20px; }
+.poses .exercise-pose { position: relative; height: 100%; min-width: 0; min-height: 0; padding: 0; display: flex; background: var(--demo-image); }
+.exercise-pose .pose-arrow { position: absolute; right: calc(100% + 2px); top: 0; width: 16px; background: transparent; }
+.exercise-pose > img, .exercise-pose .image-button { width: 100%; height: 100%; object-fit: contain; }
+.poses .exercise-image-unavailable { padding: 12px; font: 400 .75rem/1.5 var(--sans); white-space: normal; }
+.exercise-library-preview .poses { height: 180px; max-width: 420px; background: var(--demo); border-radius: 8px; overflow: hidden; }
+.exercise-library-preview .exercise-pose > img { display: block; }
+.plan-library { margin-top: 16px; border-top: 1px solid var(--line); padding-top: 12px; }
+.plan-library > summary { cursor: pointer; font-size: .85rem; }
+.plan-library .exercise-library { margin-top: 14px; }
+@media (max-width: 650px) {
+  .exercise-library input, .exercise-library select { font-size: 16px; }
+  .exercise-library-prescription { grid-template-columns: 1fr 1fr; }
+  .exercise-library-prescription > label:last-child { grid-column: 1 / -1; }
+  .exercise-library-preview-heading { flex-wrap: wrap; }
+}
