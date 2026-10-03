@@ -165,3 +165,20 @@ footer { padding:1.5rem 0 3rem; display:flex; justify-content:space-between; gap
 .progress-tabs button { min-height:44px; }
 @media(min-width:601px) and (max-width:1150px) { .app-header { height:auto; min-height:112px; grid-template-columns:1fr auto; padding-block:.7rem; } .app-brand { grid-column:1;grid-row:1; } .header-actions { grid-column:2;grid-row:1;flex-wrap:wrap; } .primary-nav { grid-column:1/-1;grid-row:2;width:100%; } }
 @media(max-width:600px) { .trend-inspector { flex-wrap:wrap; } .trend-inspector .trend-readout { flex-basis:100%; order:-1; } .trend-inspector>button { flex:1; min-height:40px; } }
+/* Free sessions share the normal exercise logger and progression. */
+.free-session-picker { margin: 0 0 22px; padding: 20px; border: 1px solid var(--line); border-radius: 16px; background: var(--surface); }
+.free-session-picker > p { margin: 0 0 14px; line-height: 1.6; }
+.free-session-picker summary { cursor: pointer; font-weight: 700; padding: 12px 0; }
+.free-picker-content label { display: grid; gap: 8px; font-size: .85rem; }
+.free-picker-content input { width: 100%; min-width: 0; padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: inherit; font: inherit; }
+.free-picker-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; max-height: 340px; overflow-y: auto; margin-top: 12px; }
+.free-picker-options button { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 12px; text-align: left; border: 1px solid var(--line); border-radius: 10px; padding: 12px; background: var(--surface); color: inherit; cursor: pointer; font: inherit; }
+.free-picker-options strong { font-size: .88rem; overflow-wrap: anywhere; }
+.free-picker-options small { grid-column: 1; opacity: .7; }
+.free-picker-options button > span { grid-column: 2; grid-row: 1 / 3; align-self: center; font-size: 1.4rem; }
+.free-selected { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.free-selected button { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; background: var(--surface); color: inherit; cursor: pointer; font: inherit; font-size: .8rem; }
+.free-selected button:disabled { opacity: .65; cursor: default; }
+.free-selected > small { flex-basis: 100%; opacity: .7; line-height: 1.5; }
+.free-session-empty { margin-top: 12px !important; opacity: .7; }
+@media (max-width: 720px) { .free-session-picker { padding: 14px; } .free-picker-options { grid-template-columns: 1fr; } }

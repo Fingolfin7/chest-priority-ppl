@@ -84,7 +84,7 @@ function normalizeWorkout(value: unknown, position: number): CompletedWorkout {
     ? value.sync as WorkoutSync
     : { status: "legacy" as const };
   if (value.training !== undefined) validateWorkoutTraining(value.training);
-  if (value.training?.sequence && !value.training.sequence.includes(value.workout)) throw new Error(`Workout ${position} is missing from its saved programme sequence.`);
+  if (value.training?.sessionKind !== "free" && value.training?.sequence && !value.training.sequence.includes(value.workout)) throw new Error(`Workout ${position} is missing from its saved programme sequence.`);
   return {
     id,
     workout: value.workout,
@@ -178,7 +178,7 @@ export function parseCsvBackup(text: string): ParsedBackup {
     const trainingRaw = getRaw(item, "training_snapshot");
     let training: WorkoutTraining | undefined;
     if (trainingRaw) { try { const parsed: unknown = JSON.parse(trainingRaw); validateWorkoutTraining(parsed); training = parsed; } catch { throw new Error(`CSV row ${rowIndex + 2} has an invalid training snapshot.`); } }
-    if (training?.sequence && !training.sequence.includes(workout)) throw new Error(`CSV row ${rowIndex + 2} has a workout outside its saved programme sequence.`);
+    if (training?.sessionKind !== "free" && training?.sequence && !training.sequence.includes(workout)) throw new Error(`CSV row ${rowIndex + 2} has a workout outside its saved programme sequence.`);
     const metadata = csvWorkouts.get(workoutId) ?? {
       id: workoutId, workout, startedAt: new Date(startedAt).toISOString(), endedAt: new Date(endedAt).toISOString(),
       bodyweight: normalizeBodyweight(get(item, "bodyweight"), `CSV row ${rowIndex + 2}`), note: getRaw(item, "session_note"),

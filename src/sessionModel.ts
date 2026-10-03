@@ -60,7 +60,7 @@ export function nextWorkout(workout: WorkoutKey, sequence: WorkoutKey[] = WORKOU
   return sequence[(index + 1) % sequence.length];
 }
 
-export function createActiveWorkout(workout: WorkoutKey, startedAt = new Date().toISOString(), id = crypto.randomUUID()): ActiveWorkout {
+export function createActiveWorkout(workout: WorkoutKey, startedAt = new Date().toISOString(), id: string = crypto.randomUUID()): ActiveWorkout {
   return { id, workout, startedAt };
 }
 

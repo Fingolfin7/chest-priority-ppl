@@ -457,7 +457,7 @@ function projected(fields: Flat): SyncSnapshot {
     };
     const training = get([...prefix, "training"]);
     if (typeof training === "string") workout.training = parseTraining(training);
-    if (workout.training?.sequence && !workout.training.sequence.includes(workout.workout)) throw new Error("A synced workout is missing from its training sequence.");
+    if (workout.training?.sessionKind !== "free" && workout.training?.sequence && !workout.training.sequence.includes(workout.workout)) throw new Error("A synced workout is missing from its training sequence.");
     if (Date.parse(workout.endedAt) < Date.parse(workout.startedAt)) throw new Error("A synced workout ends before it starts.");
     allWorkouts.push(workout);
     if (live(...prefix)) completed.push(workout);
@@ -488,7 +488,7 @@ function projected(fields: Flat): SyncSnapshot {
   if (activeWorkout) {
     const training = get(["active", activeWorkout.id, "training"]);
     if (typeof training === "string") activeWorkout.training = parseTraining(training);
-    if (activeWorkout.training?.sequence && !activeWorkout.training.sequence.includes(activeWorkout.workout)) throw new Error("An active workout is missing from its training sequence.");
+    if (activeWorkout.training?.sessionKind !== "free" && activeWorkout.training?.sequence && !activeWorkout.training.sequence.includes(activeWorkout.workout)) throw new Error("An active workout is missing from its training sequence.");
   }
   const scope = activeWorkout?.id ?? UNASSIGNED;
   const drafts: DraftMap = Object.fromEntries(ids("draftExercise").filter(([owner, name]) => owner === scope && live("draftExercise", owner, name)).map(([owner, name]) => [name, sets("draft", owner, name)]));

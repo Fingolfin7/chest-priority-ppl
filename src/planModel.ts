@@ -11,7 +11,7 @@ export type TrainingPhase = {
   programId?: string; programName?: string; sequence?: WorkoutKey[];
 };
 export type PlanState = { currentId: string; phases: TrainingPhase[] };
-export type WorkoutTraining = { phaseId: string; phaseName: string; purpose: string; exercises: PlanExercise[]; programId?: string; programName?: string; workoutName?: string; sequence?: WorkoutKey[] };
+export type WorkoutTraining = { phaseId: string; phaseName: string; purpose: string; exercises: PlanExercise[]; programId?: string; programName?: string; workoutName?: string; sequence?: WorkoutKey[]; sessionKind?: "free" };
 export const PLAN_STORAGE_KEY = "rolling-ppl-plan-v1";
 export function phaseSequence(phase: TrainingPhase): WorkoutKey[] { return phase.sequence ?? WORKOUT_SEQUENCE; }
 export function phaseProgramName(phase: TrainingPhase) { return phase.programName ?? "Chest-priority PPL"; }
@@ -69,9 +69,10 @@ export function validateTrainingPhase(value: unknown): asserts value is Training
   }
 }
 export function validateWorkoutTraining(value: unknown): asserts value is WorkoutTraining {
-  if (!record(value) || !onlyKeys(value, ["phaseId", "phaseName", "purpose", "exercises", "programId", "programName", "workoutName", "sequence"]) || !text(value.phaseId, 120, true) || !text(value.phaseName, 120, true) || !text(value.purpose, 2000)
+  if (!record(value) || !onlyKeys(value, ["phaseId", "phaseName", "purpose", "exercises", "programId", "programName", "workoutName", "sequence", "sessionKind"]) || !text(value.phaseId, 120, true) || !text(value.phaseName, 120, true) || !text(value.purpose, 2000)
+    || (value.sessionKind !== undefined && value.sessionKind !== "free")
     || ["programId", "programName", "workoutName"].some((key) => value[key] !== undefined && !text(value[key], 120, true)) || (value.sequence !== undefined && !validSequence(value.sequence))) throw new Error("Invalid workout phase.");
-  validatePlanExercises(value.exercises);
+  if (value.sessionKind !== "free" || !Array.isArray(value.exercises) || value.exercises.length) validatePlanExercises(value.exercises);
 }
 export function normalizePlanState(value: unknown): PlanState {
   if (!record(value) || !onlyKeys(value, ["currentId", "phases"]) || !text(value.currentId, 120, true) || !Array.isArray(value.phases) || !value.phases.length || value.phases.length > 500) throw new Error("Invalid saved training plan.");
@@ -103,8 +104,9 @@ export function trainingForWorkout(phase: TrainingPhase, workout: WorkoutKey): W
   if (!phaseSequence(phase).includes(workout)) throw new Error("This workout is not part of the current programme.");
   return { phaseId: phase.id, phaseName: phase.name, purpose: phase.purpose, programId: phaseProgramId(phase), programName: phaseProgramName(phase), workoutName: workoutLabel(workout, phase), sequence: [...phaseSequence(phase)], exercises: structuredClone(phase.workouts[workout].exercises) };
 }
-export function nextWorkoutForPhase(workout: WorkoutKey, training: WorkoutTraining | undefined, phase: TrainingPhase): WorkoutKey {
+export function nextWorkoutForPhase(workout: WorkoutKey, training: WorkoutTraining | undefined, phase: TrainingPhase, queued?: WorkoutKey): WorkoutKey {
   const sequence = phaseSequence(phase);
+  if (training?.sessionKind === "free") return queued && sequence.includes(queued) ? queued : sequence[0];
   if ((training?.programId ?? "original-ppl-program") !== phaseProgramId(phase)) return sequence[0];
   const following = nextWorkout(workout, training?.sequence ?? WORKOUT_SEQUENCE);
   return sequence.includes(following) ? following : sequence[0];

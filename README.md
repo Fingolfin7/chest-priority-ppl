@@ -5,6 +5,7 @@ A phone-first, chest-prioritized rolling Push/Pull/Legs workout tracker. The seq
 ## Features
 
 - Persistent next-workout sequence with start, elapsed-time, and finish controls
+- Free sessions with exercises chosen as you go, shared progression targets, and no change to the queued programme workout
 - Separate Train, Progress, Sessions, and Plan destinations, with focused workout tabs inside Train
 - Gym-readable exercise rows with work sets, optional warm-ups, rest, cues, and click-to-enlarge public-domain photos
 - Crash-safe workout drafts and completed sessions with optional peer-to-peer browser sync
@@ -60,6 +61,12 @@ npm run dev
 ```
 
 The dev server runs at `http://127.0.0.1:4173`, an origin already allowed by Autumn. Build the production site with `npm run build`; output is written to `dist/`.
+
+## Free sessions
+
+In **Train**, choose **Start free session**, then **Add exercise**. Search across your current programme and add exercises whenever you need them. Alternatives such as pulldowns and pull-ups are separate choices with their own histories. Each chosen exercise keeps its programme set/rep prescription and uses the usual progression targets from its latest logged sets.
+
+Save exercises and finish as usual. The session appears in Sessions and updates the same lift history used by your main programme, while your queued programme workout stays next. Selections and entered sets recover after a reload and are included in device sync and backups. An exercise with entered sets cannot be removed until those sets are cleared.
 
 ## Edit past sessions
 
