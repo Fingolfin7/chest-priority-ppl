@@ -123,6 +123,14 @@ function TrainingRail({ next, phase, active, finishEndedAt, finishing, latest, s
   const workout = active?.workout ?? next;
   const label = workoutLabel(workout, active?.training ?? phase);
   const sequence = phaseSequence(phase);
+  const syncedReceipt = latest?.sync.status === "synced" ? `${latest.id}:${latest.sync.syncedAt ?? ""}` : null;
+  const [dismissedReceipt, setDismissedReceipt] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (active || !syncedReceipt) return;
+    const timer = window.setTimeout(() => setDismissedReceipt(syncedReceipt), 5000);
+    return () => window.clearTimeout(timer);
+  }, [active, syncedReceipt]);
 
   return <section className={`training-rail ${workout}`} aria-labelledby="training-title">
     <div className="rail-main">
@@ -130,7 +138,7 @@ function TrainingRail({ next, phase, active, finishEndedAt, finishing, latest, s
       {active ? <div className="rail-live"><WorkoutClock startedAt={active.startedAt} endedAt={finishEndedAt} /><button className="primary-action" type="button" onClick={onFinish} disabled={finishing}>Finish workout</button><button className="text-action" type="button" onClick={onCancel}>Cancel</button></div>
         : <div className="rail-start"><div className="sequence-dots" aria-label="Workout sequence">{sequence.map((item) => <span key={item} className={item === next ? "current" : ""}>{workoutLabel(item, phase)}</span>)}</div><button className="primary-action" type="button" onClick={onStart}>Start {workoutLabel(next, phase)}</button><details className="next-picker"><summary>Change next</summary><div>{sequence.map((item) => <button type="button" key={item} onClick={() => onSetNext(item)}>{workoutLabel(item, phase)}</button>)}</div></details></div>}
     </div>
-    {!active && latest && latest.sync.status !== "legacy" && <div className={`sync-receipt ${latest.sync.status}`}><div><span>{latest.sync.status === "synced" ? "Autumn receipt" : "Saved on this device"}</span><strong>{workoutLabel(latest.workout, latest.training)} · {workoutDurationMinutes(latest)} min</strong><small>{latest.sync.status === "synced" ? `Synced to ${latest.sync.projectName}` : latest.sync.message || "Ready to sync when you are."}</small></div>{latest.sync.status !== "synced" ? <button type="button" disabled={syncBusy} onClick={() => onSync(latest)}>{syncBusy ? "Syncing…" : "Sync to Autumn"}</button> : <b aria-label="Synced">✓</b>}</div>}
+    {!active && latest && latest.sync.status !== "legacy" && (!syncedReceipt || syncedReceipt !== dismissedReceipt) && <div className={`sync-receipt ${latest.sync.status}`}><div><span>{latest.sync.status === "synced" ? "Autumn receipt" : "Saved on this device"}</span><strong>{workoutLabel(latest.workout, latest.training)} · {workoutDurationMinutes(latest)} min</strong><small>{latest.sync.status === "synced" ? `Synced to ${latest.sync.projectName}` : latest.sync.message || "Ready to sync when you are."}</small></div>{latest.sync.status !== "synced" ? <button type="button" disabled={syncBusy} onClick={() => onSync(latest)}>{syncBusy ? "Syncing…" : "Sync to Autumn"}</button> : <b aria-label="Synced">✓</b>}</div>}
   </section>;
 }
 
