@@ -72,6 +72,7 @@ button, input, select, textarea { font-family: var(--sans); }
 main, footer { width: min(1040px, calc(100% - 32px)); }
 
 .app-header {
+  grid-template-rows: auto;
   min-height: 68px;
   height: auto;
   position: sticky;
@@ -81,6 +82,33 @@ main, footer { width: min(1040px, calc(100% - 32px)); }
   grid-template-columns: minmax(150px, 1fr) auto minmax(100px, 1fr);
   background: color-mix(in srgb, var(--bg) 94%, transparent);
   backdrop-filter: blur(14px);
+}
+
+/* Keep the compact shell above the legacy mobile grid rules. */
+.app-header .app-brand { grid-column: 1; grid-row: 1; }
+.app-header .header-actions { grid-column: 3; grid-row: 1; }
+.workout-tabs.progress-tabs button.active,
+.workout-tabs.train-workout-tabs button.active { background: var(--surface); color: var(--ink); }
+.progress-support .frequency-card { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; padding: 12px; }
+.progress-support .frequency-card > strong { font-size: 1.2rem; line-height: 1.2; margin: 0; }
+.progress-support .frequency-card > p { margin: 0; font-size: .78rem; }
+.progress-support .frequency-card > span { font: 500 .75rem var(--sans); text-transform: none; }
+.progress-support .frequency-card > div:empty { display: none; }
+.training-phase-note { padding-block: 6px; }
+.training-rail .sequence-dots { display: none; }
+.training-rail .rail-copy p { display: none; }
+.training-rail .rail-main { flex-direction: row; align-items: center; }
+.training-rail .rail-start, .training-rail .rail-live { justify-items: end; }
+.training-rail .rail-main .primary-action { width: auto; text-transform: none; }
+.workout .short-session { background: transparent; border: 0; padding: 0 2px 6px; }
+.storage-note { font-size: .68rem; margin-block: 5px; }
+.progress-support .milestones { margin-bottom: 12px; }
+@media (max-width: 850px) { .app-header .header-actions { grid-column: 2; grid-row: 1; } }
+@media (max-width: 720px) {
+  .app-header { grid-template-rows: auto; }
+  .training-rail .rail-live { grid-template-columns: auto auto; align-items: center; }
+  .training-rail .rail-live .text-action { grid-column: 2; }
+  .training-phase-note { margin-block: 2px; min-height: 0; padding-block: 4px; }
 }
 .app-brand h1 { font-size: 1.08rem; letter-spacing: -.025em; }
 .app-brand p { margin-top: 2px; font-size: .72rem; }
