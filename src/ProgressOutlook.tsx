@@ -67,7 +67,7 @@ export function ProgressOutlook({readings,measurements,history}: {readings:Weigh
   const [historyData,setHistoryData]=useState<ForecastSnapshot[]>([]);
   const [historyError,setHistoryError]=useState('');
   const [comparisonId,setComparisonId]=useState('');
-  const [isOpen,setIsOpen]=useState(false);
+  const isOpen=true;
   const today=localDay();
 
   useEffect(()=>{
@@ -113,7 +113,7 @@ export function ProgressOutlook({readings,measurements,history}: {readings:Weigh
     return ()=>{active=false;};
   },[isOpen,snapshot]);
 
-  return <details className="progress-outlook" onToggle={event=>setIsOpen(event.currentTarget.open)}>
+  return <section className="progress-outlook" aria-label="Short-term outlook">
     <summary><span>Short-term outlook</span><small>Explore and compare 2–4 week forecasts</small></summary>
     <div className="outlook-content">
       <div className="outlook-controls"><div className="outlook-views" role="group" aria-label="Outlook metric">{(['weight','lifts','measurements'] as const).map(value=><button type="button" key={value} aria-pressed={view===value} onClick={()=>setView(value)}>{value==='weight'?'Weight':value==='lifts'?'Lifts':'Measurements'}</button>)}</div>
@@ -136,5 +136,5 @@ export function ProgressOutlook({readings,measurements,history}: {readings:Weigh
       {view==='lifts'&&<p className="outlook-lift-note">This follows the heaviest recorded working set, using the logged load convention for this exercise. More reps at the same load also count as progress. This does not estimate maximum strength.</p>}
       <p className="outlook-method">Extends the recorded trend from each issue date. Ranges widen with time and variation; they are scenario ranges, not confidence intervals or targets.</p>
     </div>
-  </details>;
+  </section>;
 }

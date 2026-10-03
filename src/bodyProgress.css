@@ -154,3 +154,9 @@
   .body-entry { flex-direction:column; gap:.6rem; }.body-entry-actions { max-width:100%; }
   .body-entry-form { padding:.8rem; }.body-milestones { grid-template-columns:1fr; }
 }
+
+.body-page-nav { display:flex; flex-wrap:wrap; gap:.5rem; }
+.body-page-nav button[aria-current="page"] { color:var(--push-soft-ink); background:var(--push-soft); border-color:var(--push); }
+.phase-progress-stats strong { overflow-wrap:anywhere; }
+
+.phase-progress-stats .phase-weight-empty { font-size:1rem; line-height:1.4; }
