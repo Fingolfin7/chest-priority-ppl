@@ -394,19 +394,12 @@ export function PhotoProgress() {
     setStatus(`${viewLabel(photo.view)} photo from ${displayDate(photo.date)} downloaded.`);
   }
 
-  return <section className="photo-progress" aria-labelledby="photo-progress-title">
-    <header className="photo-progress-heading">
-      <div>
-        <p className="photo-progress-eyebrow">Private progress</p>
-        <h2 id="photo-progress-title">Progress photos</h2>
-        <p>Track front, side, and back views over time. Photos save in this app&apos;s local browser storage. Enable photo backup below to keep a private cloud copy.</p>
-      </div>
-    </header>
+  return <section className="photo-progress" aria-label="Progress photos">
 
     {storageError && <p className="photo-progress-error" role="alert">{storageError}</p>}
     {status && <p className="photo-progress-status" role="status">{status}</p>}
 
-    <CloudPhotoBackupPanel photos={photos} />
+    <details className="photo-backup-accordion"><summary>Photo storage and backups</summary><div><CloudPhotoBackupPanel photos={photos} /></div></details>
 
     <section className="photo-collection-summary" aria-label="Photo collection summary">
       <div className="photo-collection-total"><strong>{loading ? "Loading your collection…" : `${photos.length} ${photos.length === 1 ? "photo" : "photos"}`}</strong>{!loading && <span>Across {checkInCount} {checkInCount === 1 ? "check-in" : "check-ins"}</span>}</div>
