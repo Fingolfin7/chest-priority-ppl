@@ -297,7 +297,8 @@ main, footer { width: min(1040px, calc(100% - 32px)); }
 .demo-strip { border-radius: 8px; }
 .poses { height: 180px; grid-template-columns: minmax(0, 1fr) 18px minmax(0, 1fr); }
 .image-button { width: 100%; height: 100%; }
-.image-button img { filter: grayscale(1) contrast(.92); }
+.image-button img { object-fit: contain; filter: grayscale(1) contrast(.92); }
+.image-button:hover img { transform: none; }
 .demo-strip figcaption { height: 30px; padding: 7px 9px; font: 600 .68rem/1 var(--sans); }
 .image-source { font: 500 .61rem/1 var(--sans); }
 .exercise-info { align-self: stretch; min-width: 0; }
