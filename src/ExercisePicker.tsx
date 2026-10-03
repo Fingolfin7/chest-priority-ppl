@@ -1,6 +1,7 @@
 import { useId, useState } from "react";
 import { equipmentOptions, exerciseDefinition, muscleOptions, normalizeExerciseSearch, searchExercises } from "./exerciseLibrary";
 import { ExerciseImages } from "./ExerciseImages";
+import { ExpandableDescription } from "./ExpandableDescription";
 import { validatePlanExercises, type PlanExercise } from "./planModel";
 
 export function ExercisePicker({ catalog, excluded = [], disabled = false, onSelect, prescriptions = false }: {
@@ -36,7 +37,7 @@ export function ExercisePicker({ catalog, excluded = [], disabled = false, onSel
       <div className="exercise-library-preview-heading"><h4>{preview.name}</h4><button className="text-action" type="button" onClick={() => setPreview(null)}>Close preview</button></div>
       {definition && <p>{definition.primaryMuscles.join(", ")} · {definition.equipment} · {definition.category}</p>}
       {preview.demos[0] && <ExerciseImages key={preview.demos[0].slug} slug={preview.demos[0].slug} label={preview.name} />}
-      {preview.cue && <p className="exercise-library-cue">{preview.cue}</p>}
+      <ExpandableDescription key={preview.name} text={preview.cue} className="exercise-library-cue" />
       {definition && !["strength", "powerlifting", "strongman", "olympic weightlifting", "plyometrics"].includes(definition.category) && <p>This logger records reps, rather than time or distance.</p>}
       {prescriptions && <div className="exercise-library-prescription"><label>Sets<input maxLength={8} value={preview.sets} onChange={(event) => setPreview({ ...preview, sets: event.target.value })} /></label><label>Rep range<input maxLength={8} value={preview.reps} onChange={(event) => setPreview({ ...preview, reps: event.target.value })} /></label><label>Weight convention<select value={preview.loadSuffix ?? ""} onChange={(event) => setPreview({ ...preview, loadSuffix: event.target.value || undefined })}><option value="">Total weight / machine stack</option><option value=" each">Per dumbbell</option></select></label></div>}
       {error && <p className="form-error" role="alert">{error}</p>}

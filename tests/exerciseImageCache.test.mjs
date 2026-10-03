@@ -39,7 +39,7 @@ test('external exercise images download once and are served offline; an uncached
 test('app upgrades preserve the image cache and other caches, removing only superseded app assets', async () => {
   const sw = worker();
   await sw.request(EXERCISE_IMAGE_BASE + 'Dumbbell_Bench_Press/0.jpg');
-  await sw.caches.open('rolling-ppl-v39'); await sw.caches.open('rolling-ppl-v40'); await sw.caches.open('another-app-cache');
+  await sw.caches.open('rolling-ppl-v40'); await sw.caches.open('rolling-ppl-v41'); await sw.caches.open('another-app-cache');
   let pending; sw.handlers.activate({ waitUntil(value) { pending = value; } }); await pending;
-  assert.deepEqual((await sw.caches.keys()).sort(), ['another-app-cache', 'rolling-ppl-exercise-images-v1', 'rolling-ppl-v40']);
+  assert.deepEqual((await sw.caches.keys()).sort(), ['another-app-cache', 'rolling-ppl-exercise-images-v1', 'rolling-ppl-v41']);
 });

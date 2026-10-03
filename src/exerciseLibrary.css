@@ -14,13 +14,16 @@
 .exercise-library-preview h4 { margin: 0; font-size: 1.1rem; overflow-wrap: anywhere; }
 .exercise-library-preview-heading button { flex-shrink: 0; }
 .exercise-library-preview > p { font-size: .85rem; line-height: 1.6; }
-.exercise-library-cue { white-space: pre-line; max-height: 180px; overflow-y: auto; }
+.exercise-library-cue { margin: 12px 0; font-size: .85rem; line-height: 1.6; }
+.exercise-description-text { margin: 0; white-space: pre-line; overflow-wrap: anywhere; }
+.exercise-description .exercise-description-toggle { min-height: 36px; padding: 6px 0; font-size: .8rem; text-transform: none; }
 .exercise-library-prescription { display: grid; grid-template-columns: 1fr 1fr 2fr; gap: 12px; margin: 16px 0; }
 .exercise-library-preview > .primary-action { margin-top: 12px; }
 .poses { grid-template-columns: 1fr 1fr; grid-template-rows: minmax(0, 1fr); gap: 20px; }
 .poses .exercise-pose { position: relative; height: 100%; min-width: 0; min-height: 0; padding: 0; display: flex; background: var(--demo-image); }
 .exercise-pose .pose-arrow { position: absolute; right: calc(100% + 2px); top: 0; width: 16px; background: transparent; }
 .exercise-pose > img, .exercise-pose .image-button { width: 100%; height: 100%; object-fit: contain; }
+.exercise-pose img { filter: grayscale(1) contrast(.92); }
 .poses .exercise-image-unavailable { padding: 12px; font: 400 .75rem/1.5 var(--sans); white-space: normal; }
 .exercise-library-preview .poses { height: 180px; max-width: 420px; background: var(--demo); border-radius: 8px; overflow: hidden; }
 .exercise-library-preview .exercise-pose > img { display: block; }
