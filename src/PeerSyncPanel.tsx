@@ -11,7 +11,6 @@ export function PeerSyncPanel({ manager }: { manager: PeerSyncManager }) {
     try { return fragment ?? sessionStorage.getItem(PENDING_INVITE) ?? ""; } catch { return fragment ?? ""; }
   });
   const [open, setOpen] = useState(Boolean(initialInvite));
-  const [dismissedRequest, setDismissedRequest] = useState("");
   const [joinText, setJoinText] = useState(initialInvite);
   const [name, setName] = useState(state.name);
   const [qr, setQr] = useState({ link: "", image: "" });
@@ -21,9 +20,8 @@ export function PeerSyncPanel({ manager }: { manager: PeerSyncManager }) {
   const [message, setMessage] = useState("");
   const dialog = useRef<HTMLDialogElement>(null);
   const inviteLink = state.invite ? `${location.origin}${location.pathname}#pair=${state.invite}` : "";
-  const needsAttention = state.conflicts.length > 0 || Boolean(state.request) || Boolean(state.error);
-  const showDialog = open || Boolean(state.request && state.request.id !== dismissedRequest);
-  const close = () => { setScanning(false); manager.cancelInvite(); setOpen(false); setDismissedRequest(state.request?.id ?? ""); };
+  const needsAttention = state.conflicts.length > 0 || Boolean(state.error);
+  const close = () => { setScanning(false); manager.cancelInvite(); setOpen(false); };
 
   useEffect(() => {
     if (initialInvite) {
@@ -47,9 +45,9 @@ export function PeerSyncPanel({ manager }: { manager: PeerSyncManager }) {
   }, []);
   useEffect(() => {
     const element = dialog.current;
-    if (showDialog && element && !element.open) element.showModal();
-    if (!showDialog && element?.open) element.close();
-  }, [showDialog]);
+    if (open && element && !element.open) element.showModal();
+    if (!open && element?.open) element.close();
+  }, [open]);
   useEffect(() => {
     let cancelled = false;
     if (!inviteLink) return;
@@ -72,7 +70,7 @@ export function PeerSyncPanel({ manager }: { manager: PeerSyncManager }) {
   };
   return <>
     <button className={`utility-button peer-sync-button ${needsAttention ? "attention" : ""}`} type="button" aria-label="Sync devices" onClick={() => setOpen(true)}>
-      Devices{state.conflicts.length > 0 && <b>{state.conflicts.length}</b>}{state.request && <b>!</b>}
+      Devices{state.conflicts.length > 0 && <b>{state.conflicts.length}</b>}
     </button>
     <dialog ref={dialog} className="peer-dialog" aria-labelledby="peer-sync-title" onCancel={close} onClose={close}>
       <div className={`peer-panel${scanning ? " peer-scanning" : ""}`}>
@@ -86,10 +84,6 @@ export function PeerSyncPanel({ manager }: { manager: PeerSyncManager }) {
           {state.error && <span className="form-error">{state.error}</span>}
           {message && <span>{message}</span>}
         </div>
-        {state.request && <section className="peer-request"><h3>Pair with {state.request.name}?</h3><p>Approve only if this is the browser where you just opened your pairing link.</p>
-          <button className="primary-action" type="button" disabled={busy} onClick={() => { setOpen(true); void run(() => manager.approve(state.request!.id)); }}>Approve pairing</button>
-          <button className="secondary-action" type="button" onClick={() => manager.reject(state.request!.id)}>Decline</button>
-        </section>}
         <div className="peer-actions">
           <button className="primary-action" type="button" disabled={busy || scanning} onClick={() => { manager.cancelInvite(); setMessage(""); setScanning(true); }}>Scan QR code</button>
           <button className="secondary-action" type="button" disabled={busy} onClick={() => { setScanning(false); void run(async () => { await manager.createInvite(); if (!dialog.current?.open) manager.cancelInvite(); }); }}>Show my QR</button>

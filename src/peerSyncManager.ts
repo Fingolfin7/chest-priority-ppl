@@ -1,19 +1,26 @@
 import * as A from "@automerge/automerge";
 import { createSyncDoc, updateSyncDoc, projectSyncDoc, listSyncConflicts, resolveSyncConflict, validateSyncDoc, migrateExerciseAliases, type SyncSnapshot, type SyncData } from "./peerSyncModel.ts";
 import { createIdentity, type DeviceIdentity } from "./peerSyncCrypto.ts";
-import { PeerSyncTransport, type PairedDevice, type PairRequest } from "./peerSyncTransport.ts";
+import { PeerSyncTransport, type PairedDevice } from "./peerSyncTransport.ts";
 import { recoveryJournal, recoverySnapshots, type RecoveryJournal } from "./recoveryJournal.ts";
 
-type Persisted = {
+// Version 1 kept everything, including a full document save, in one "current"
+// record rewritten on every change. Version 2 keeps small metadata, a compacted
+// document and appended incremental changes; it migrates version 1 on first save.
+type LegacyPersisted = {
   version: 1; document: Uint8Array; identity: DeviceIdentity; devices: PairedDevice[];
   name: string; enabled: boolean; revoked: string[]; original: SyncSnapshot;
 };
+type Metadata = { version: 2; identity: DeviceIdentity; devices: PairedDevice[]; name: string; enabled: boolean; revoked: string[] };
+type StoredState = { legacy?: LegacyPersisted; meta?: Metadata; document?: Uint8Array; changes: Uint8Array[] };
 export type SyncView = {
   enabled: boolean; status: string; error: string; name: string; invite: string;
-  request: PairRequest | null; devices: Array<PairedDevice & { connected: boolean; current: boolean }>;
+  devices: Array<PairedDevice & { connected: boolean; current: boolean }>;
   conflicts: ReturnType<typeof listSyncConflicts>; removed: boolean;
 };
 const RECOVERY_KEY = "rolling-ppl-sync-recovery-v1";
+// Appended change chunks are folded into one full save after this many writes.
+const COMPACT_AFTER = 100;
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 function heads(doc: A.Doc<SyncData>) { return JSON.stringify(A.getHeads(doc).sort()); }
@@ -22,28 +29,64 @@ function packet(type: number, body: Uint8Array) {
 }
 function openDatabase(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
-    const request = indexedDB.open("rolling-ppl-peer-sync-v1", 1);
-    request.onupgradeneeded = () => request.result.createObjectStore("state");
+    const request = indexedDB.open("rolling-ppl-peer-sync-v1", 2);
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      if (!db.objectStoreNames.contains("state")) db.createObjectStore("state");
+      if (!db.objectStoreNames.contains("changes")) db.createObjectStore("changes", { autoIncrement: true });
+    };
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error);
     request.onblocked = () => reject(new Error("Close other Rolling PPL tabs, then reload."));
   });
 }
-function readState(db: IDBDatabase): Promise<Persisted | undefined> {
+function readState(db: IDBDatabase): Promise<StoredState> {
   return new Promise((resolve, reject) => {
-    const request = db.transaction("state", "readonly").objectStore("state").get("current");
-    request.onsuccess = () => resolve(request.result as Persisted | undefined);
-    request.onerror = () => reject(request.error);
+    const transaction = db.transaction(["state", "changes"], "readonly");
+    const state = transaction.objectStore("state");
+    const result: StoredState = { changes: [] };
+    const legacy = state.get("current"), meta = state.get("meta"), document = state.get("document"), changes = transaction.objectStore("changes").getAll();
+    transaction.oncomplete = () => resolve({ ...result, legacy: legacy.result, meta: meta.result, document: document.result, changes: changes.result as Uint8Array[] });
+    transaction.onerror = () => reject(transaction.error);
+    transaction.onabort = () => reject(transaction.error ?? new Error("Local sync data could not be read."));
   });
 }
-function writeState(db: IDBDatabase, state: Persisted): Promise<void> {
+type StateWrite = { meta: Metadata; document?: Uint8Array; change?: Uint8Array; original?: SyncSnapshot };
+function writeState(db: IDBDatabase, write: StateWrite): Promise<void> {
   return new Promise((resolve, reject) => {
-    const transaction = db.transaction("state", "readwrite");
-    transaction.objectStore("state").put(state, "current");
+    const transaction = db.transaction(["state", "changes"], "readwrite");
+    const state = transaction.objectStore("state"), changes = transaction.objectStore("changes");
+    state.put(write.meta, "meta");
+    if (write.document) { state.put(write.document, "document"); changes.clear(); state.delete("current"); }
+    if (write.change) changes.add(write.change);
+    if (write.original) state.put(write.original, "original");
     transaction.oncomplete = () => resolve();
     transaction.onerror = () => reject(transaction.error);
     transaction.onabort = () => reject(transaction.error ?? new Error("Local save was interrupted."));
   });
+}
+// Keep unchanged branches of the previous snapshot so React, the localStorage
+// mirrors and the crash journal only see the parts that actually changed.
+export function reuseUnchanged<T>(previous: T, next: T): T {
+  if (Object.is(previous, next) || !previous || !next || typeof previous !== "object" || typeof next !== "object") return next;
+  if (Array.isArray(next)) {
+    if (!Array.isArray(previous)) return next;
+    let same = previous.length === next.length;
+    const merged = next.map((item, index) => { const kept = reuseUnchanged(previous[index], item); if (kept !== previous[index]) same = false; return kept; });
+    return (same ? previous : merged) as T;
+  }
+  if (Array.isArray(previous)) return next;
+  const before = previous as Record<string, unknown>, after = next as Record<string, unknown>;
+  const keys = Object.keys(after);
+  let same = keys.length === Object.keys(before).length;
+  const merged: Record<string, unknown> = {};
+  for (const key of keys) {
+    const kept = Object.hasOwn(before, key) ? reuseUnchanged(before[key], after[key]) : after[key];
+    if (!Object.hasOwn(before, key) || kept !== before[key]) same = false;
+    // Exercise names are user data; never let a key such as "__proto__" act as a setter.
+    Object.defineProperty(merged, key, { value: kept, enumerable: true, configurable: true, writable: true });
+  }
+  return (same ? previous : merged) as T;
 }
 
 /** One store owns the React snapshot and replicated history. Typing updates the
@@ -52,7 +95,10 @@ export class PeerSyncManager {
   private doc: A.Doc<SyncData>;
   private snapshot: SyncSnapshot;
   private durableSnapshot: SyncSnapshot;
-  private original: SyncSnapshot;
+  private seed?: () => SyncSnapshot;
+  private pendingOriginal?: SyncSnapshot;
+  private persistedHeads?: A.Heads;
+  private changeCount = 0;
   private identity!: DeviceIdentity;
   private db?: IDBDatabase;
   private transport?: PeerSyncTransport;
@@ -70,12 +116,21 @@ export class PeerSyncManager {
   private inputBaseline?: SyncSnapshot;
   private inputTimer?: ReturnType<typeof setTimeout>;
   private inputDeadline?: ReturnType<typeof setTimeout>;
-  private view: SyncView = { enabled: false, status: "Pair a browser to start syncing.", error: "", name: "My browser", invite: "", request: null, devices: [], conflicts: [], removed: false };
-  constructor(initial: SyncSnapshot) {
-    this.original = structuredClone(initial);
-    this.doc = createSyncDoc(initial);
+  private view: SyncView = { enabled: false, status: "Pair a browser to start syncing.", error: "", name: "My browser", invite: "", devices: [], conflicts: [], removed: false };
+  /** A seed function is only called when this browser has no saved sync data
+   * (or storage fails), so normal starts skip rebuilding a throwaway document. */
+  constructor(initial: SyncSnapshot | (() => SyncSnapshot)) {
+    if (typeof initial === "function") { this.seed = initial; this.doc = createSyncDoc(); }
+    else this.doc = createSyncDoc(initial);
     this.snapshot = projectSyncDoc(this.doc);
     this.durableSnapshot = this.snapshot;
+  }
+  private plant() {
+    if (!this.seed) return;
+    const initial = this.seed(); this.seed = undefined;
+    this.pendingOriginal = structuredClone(initial);
+    this.doc = createSyncDoc(initial);
+    this.snapshot = projectSyncDoc(this.doc); this.durableSnapshot = this.snapshot;
   }
   getSnapshot = () => this.snapshot;
   async saveNow() { await this.durable(); }
@@ -89,7 +144,7 @@ export class PeerSyncManager {
     this.listeners.forEach((listener) => listener());
   }
   private publish(inputBaseline?: SyncSnapshot) {
-    this.snapshot = projectSyncDoc(this.doc);
+    this.snapshot = reuseUnchanged(this.snapshot, projectSyncDoc(this.doc));
     // Draft commits cannot change history, receipts, or the active workout.
     // Retain their references so React does not rewrite the history mirrors.
     if (inputBaseline) this.snapshot = { ...this.snapshot, history: inputBaseline.history, completed: inputBaseline.completed, activeWorkout: inputBaseline.activeWorkout };
@@ -100,10 +155,13 @@ export class PeerSyncManager {
   async initialize() {
     try {
       this.db = await openDatabase();
-      const saved = await readState(this.db);
+      const stored = await readState(this.db);
+      const saved = stored.meta ?? stored.legacy;
       if (saved) {
-        if (saved.version !== 1) throw new Error("This sync data needs a newer version of Rolling PPL.");
-        this.doc = A.load<SyncData>(saved.document);
+        if (stored.meta ? stored.meta.version !== 2 || !stored.document : stored.legacy!.version !== 1) throw new Error("This sync data needs a newer version of Rolling PPL.");
+        let doc = A.load<SyncData>(stored.meta ? stored.document! : stored.legacy!.document);
+        for (const change of stored.meta ? stored.changes : []) doc = A.loadIncremental(doc, change);
+        this.doc = doc; this.seed = undefined;
         validateSyncDoc(this.doc);
         this.durableSnapshot = projectSyncDoc(this.doc);
         // A single synchronous journal recovers edits made just before a page
@@ -115,15 +173,19 @@ export class PeerSyncManager {
         }
         this.doc = migrateExerciseAliases(this.doc);
         this.identity = saved.identity; this.devices = saved.devices; this.revoked = new Set(saved.revoked);
-        this.original = saved.original;
+        // The one-time pre-sync snapshot moves to its own record and is never rewritten.
+        if (stored.legacy?.original) this.pendingOriginal = stored.legacy.original;
         this.view = { ...this.view, name: saved.name, enabled: saved.enabled };
       } else {
+        this.plant();
         this.identity = await createIdentity();
         this.view = { ...this.view, name: /Android|iPhone|iPad/i.test(navigator.userAgent) ? "My phone" : "My laptop" };
       }
       this.publish(); await this.persist();
       if (this.view.enabled && !this.view.removed) this.startTransport();
     } catch (error) {
+      // Storage failed: keep working from the localStorage copy for this visit.
+      if (this.seed) { this.plant(); this.publish(); }
       this.refresh({ enabled: false });
       this.fail(new Error(`Device sync is unavailable: ${error instanceof Error ? error.message : "local storage failed"}. Your workout copy is still available.`));
     }
@@ -169,12 +231,19 @@ export class PeerSyncManager {
   private persist() {
     this.flushPendingInputs();
     if (!this.db || !this.identity) return Promise.reject(new Error("This browser could not open its sync storage."));
-    const baseline = this.snapshot;
-    const state: Persisted = { version: 1, document: A.save(this.doc), identity: this.identity,
-      devices: this.devices, name: this.view.name, enabled: this.view.enabled, revoked: [...this.revoked], original: this.original };
-    const db = this.db;
+    const baseline = this.snapshot, doc = this.doc, db = this.db;
+    const meta: Metadata = { version: 2, identity: this.identity, devices: this.devices, name: this.view.name, enabled: this.view.enabled, revoked: [...this.revoked] };
+    // Writes run in order; each appends only the changes since the last
+    // committed write, and the first write after loading compacts everything.
     const work = this.saving.catch(() => {}).then(async () => {
-      await writeState(db, state); this.durableSnapshot = baseline; this.journal();
+      const heads = A.getHeads(doc);
+      const compact = !this.persistedHeads || this.changeCount >= COMPACT_AFTER;
+      const changed = !compact && [...heads].sort().join() !== [...this.persistedHeads!].sort().join();
+      const original = this.pendingOriginal;
+      await writeState(db, { meta, ...(compact ? { document: A.save(doc) } : changed ? { change: A.saveSince(doc, this.persistedHeads!) } : {}), ...(original ? { original } : {}) });
+      if (original === this.pendingOriginal) this.pendingOriginal = undefined;
+      this.persistedHeads = heads; this.changeCount = compact ? 0 : this.changeCount + Number(changed);
+      this.durableSnapshot = baseline; this.journal();
     });
     this.saving = work; return work;
   }
@@ -196,16 +265,11 @@ export class PeerSyncManager {
     const transport = new PeerSyncTransport({
       identity: this.identity, name: this.view.name, devices: this.devices.filter((device) => !this.revoked.has(device.id)),
       onStatus: (status) => { if (this.transport === transport) this.refresh({ status }); },
-      onPairRequest: (request) => {
-        if (this.transport !== transport) return;
-        if (this.revoked.has(request.id)) { this.transport?.rejectPair(request.id); return; }
-        this.refresh({ request });
-      },
       onPaired: (device) => {
         if (this.transport !== transport) return;
         if (this.revoked.has(device.id)) { this.transport?.disconnect(device.id); return; }
         this.devices = [...this.devices.filter((entry) => entry.id !== device.id), device];
-        this.refresh({ invite: "", request: null, error: "" }); this.schedule();
+        this.refresh({ invite: "", error: "" }); this.schedule();
       },
       onConnected: (id) => {
         if (this.transport !== transport) return;
@@ -236,7 +300,7 @@ export class PeerSyncManager {
   }
   async pause() {
     this.transport?.stop(); this.transport = undefined; this.connected.clear(); this.states.clear(); this.acknowledged.clear();
-    this.refresh({ enabled: false, invite: "", request: null, status: "Sync paused. Workouts still save locally." }); await this.persist();
+    this.refresh({ enabled: false, invite: "", status: "Sync paused. Workouts still save locally." }); await this.persist();
   }
   async resetPairing() {
     if (!this.identity || !this.db) throw new Error("Device sync storage is unavailable. Reload and try again.");
@@ -244,31 +308,26 @@ export class PeerSyncManager {
     await Promise.allSettled([...this.connected].map((peer) => this.sendRevocations(peer)));
     await this.pause();
     this.identity = await createIdentity(); this.devices = [];
-    this.refresh({ invite: "", request: null, error: "", status: "Pairing reset. Your workouts are still here. Add or pair a device to reconnect." });
+    this.refresh({ invite: "", error: "", status: "Pairing reset. Your workouts are still here. Add or pair a device to reconnect." });
     await this.persist();
   }
   async rename(name: string) {
     const trimmed = name.trim().slice(0, 60); if (!trimmed) return;
     const wasEnabled = this.view.enabled;
     this.transport?.stop(); this.transport = undefined; this.connected.clear(); this.states.clear(); this.acknowledged.clear();
-    this.refresh({ name: trimmed, invite: "", request: null }); await this.persist(); if (wasEnabled) this.startTransport();
+    this.refresh({ name: trimmed, invite: "" }); await this.persist(); if (wasEnabled) this.startTransport();
   }
   async createInvite() {
     if (!this.view.enabled) await this.enable();
     if (!this.transport) throw new Error("Device connection is unavailable.");
-    const invite = await this.transport.createInvite(true); this.refresh({ invite, error: "" }); return invite;
+    const invite = await this.transport.createInvite(); this.refresh({ invite, error: "" }); return invite;
   }
-  cancelInvite() { this.transport?.cancelInvite(); this.refresh({ invite: "", request: null }); }
+  cancelInvite() { this.transport?.cancelInvite(); this.refresh({ invite: "" }); }
   async join(invite: string) {
     if (!this.view.enabled) await this.enable();
     if (!this.transport) throw new Error("Device connection is unavailable.");
     await this.transport.joinInvite(invite); this.refresh({ error: "" });
   }
-  async approve(id: string) {
-    if (!this.transport) throw new Error("Device connection is unavailable.");
-    await this.transport.approvePair(id); this.refresh({ request: null, invite: "" });
-  }
-  reject(id: string) { this.transport?.rejectPair(id); this.refresh({ request: null }); }
   async remove(id: string) {
     this.revoked.add(id); this.devices = this.devices.filter((device) => device.id !== id); await this.persist();
     await Promise.allSettled([...this.connected].map((peer) => this.sendRevocations(peer)));
@@ -322,7 +381,7 @@ export class PeerSyncManager {
       if (this.transport !== transport) return;
       if (this.revoked.has(this.identity.id)) {
         this.transport.stop(); this.transport = undefined; this.connected.clear(); this.states.clear(); this.acknowledged.clear();
-        this.refresh({ enabled: false, status: "This browser was removed. Pair it again to resume syncing.", invite: "", request: null }); await this.persist(); return;
+        this.refresh({ enabled: false, status: "This browser was removed. Pair it again to resume syncing.", invite: "" }); await this.persist(); return;
       }
       this.transport.setDevices(this.devices);
       for (const peer of this.connected) if (this.revoked.has(peer)) { this.transport.disconnect(peer); this.connected.delete(peer); this.states.delete(peer); }

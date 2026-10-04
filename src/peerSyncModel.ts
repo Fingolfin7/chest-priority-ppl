@@ -37,7 +37,7 @@ const STATUSES = ["unsynced", "syncing", "synced", "error", "legacy"];
 const MAX_FIELDS = 250_000;
 const MAX_TEXT = 100_000;
 const pathKey = (...parts: string[]) => JSON.stringify(parts);
-const sameSets = (a: SetEntry[], b: SetEntry[]) => JSON.stringify(a.map(({ load, reps }) => [load.trim(), reps.trim()])) === JSON.stringify(b.map(({ load, reps }) => [load.trim(), reps.trim()]));
+const setsKey = (sets: SetEntry[]) => JSON.stringify(sets.map(({ load, reps }) => [load.trim(), reps.trim()]));
 
 // A fixed actor AND timestamp make this exact change identical on every browser.
 const genesis = Automerge.change(Automerge.init<SyncData>({ actor: "00000000000000000000000000000001" }), { time: 0, message: "Rolling PPL sync schema 1" }, (draft) => {
@@ -53,12 +53,34 @@ function setId(kind: string, owner: string, exercise: string, set: StableSet, in
   return set.id || `legacy:${JSON.stringify([kind, owner, exercise, index])}`;
 }
 
-function belongsToWorkout(exercise: string, session: HistoryMap[string][number], workouts: CompletedWorkout[]) {
-  return workouts.find((workout) => {
-    const match = workout.exercises.find((item) => canonicalExerciseName(item.name) === exercise);
-    return session.id === `${workout.id}:${exercise}` || Boolean(match && sameSets(session.sets, match.sets)
-      && Date.parse(session.savedAt) >= Date.parse(workout.startedAt) && Date.parse(session.savedAt) <= Date.parse(workout.endedAt));
+// A lift session belongs to the first workout whose derived ID matches, or whose
+// first exercise of that name has the same sets inside the workout's time window.
+// Indexed once per flatten so each lookup is near-constant instead of a full scan.
+function workoutMatcher(workouts: CompletedWorkout[]) {
+  const firstIndex = new Map<string, number>();
+  const byExercise = new Map<string, Array<{ index: number; sets: string; start: number; end: number }>>();
+  workouts.forEach((workout, index) => {
+    if (!firstIndex.has(workout.id)) firstIndex.set(workout.id, index);
+    const seen = new Set<string>();
+    for (const item of workout.exercises) {
+      const name = canonicalExerciseName(item.name);
+      if (seen.has(name)) continue;
+      seen.add(name);
+      const list = byExercise.get(name) ?? [];
+      list.push({ index, sets: setsKey(item.sets), start: Date.parse(workout.startedAt), end: Date.parse(workout.endedAt) });
+      byExercise.set(name, list);
+    }
   });
+  return (exercise: string, session: HistoryMap[string][number]): CompletedWorkout | undefined => {
+    const suffix = `:${exercise}`;
+    let best = session.id.endsWith(suffix) ? firstIndex.get(session.id.slice(0, -suffix.length)) : undefined;
+    const sets = setsKey(session.sets), saved = Date.parse(session.savedAt);
+    for (const candidate of byExercise.get(exercise) ?? []) {
+      if (best !== undefined && candidate.index >= best) break;
+      if (candidate.sets === sets && saved >= candidate.start && saved <= candidate.end) { best = candidate.index; break; }
+    }
+    return best === undefined ? undefined : workouts[best];
+  };
 }
 
 function flatten(snapshot: SyncSnapshot, relatedWorkouts = snapshot.completed): Flat {
@@ -85,10 +107,11 @@ function flatten(snapshot: SyncSnapshot, relatedWorkouts = snapshot.completed): 
       sets("workout", workout.id, name, exercise.sets);
     });
   });
+  const belongsToWorkout = workoutMatcher(relatedWorkouts);
   for (const [storedName, sessions] of Object.entries(snapshot.history)) {
     const name = canonicalExerciseName(storedName);
     sessions.forEach((session) => {
-      const workout = belongsToWorkout(name, session, relatedWorkouts);
+      const workout = belongsToWorkout(name, session);
       if (workout) {
         put(["historyLink", name, session.id], workout.id);
         return;
@@ -472,15 +495,19 @@ function projected(fields: Flat): SyncSnapshot {
   }
   completed.sort((a, b) => b.endedAt.localeCompare(a.endedAt) || a.id.localeCompare(b.id));
   const history: HistoryMap = {};
+  const appended = new Map<string, Set<string>>();
   const append = (name: string, session: HistoryMap[string][number]) => {
-    if (!Object.hasOwn(history, name)) Object.defineProperty(history, name, { value: [], enumerable: true, configurable: true, writable: true });
-    if (!history[name].some((item) => item.id === session.id)) history[name].push(session);
+    if (!Object.hasOwn(history, name)) { Object.defineProperty(history, name, { value: [], enumerable: true, configurable: true, writable: true }); appended.set(name, new Set()); }
+    const seen = appended.get(name)!;
+    if (!seen.has(session.id)) { seen.add(session.id); history[name].push(session); }
   };
+  const workoutIds = new Set(allWorkouts.map((workout) => workout.id));
+  const belongsToWorkout = workoutMatcher(allWorkouts);
   for (const [name, id] of ids("history")) {
     if (!live("history", name, id)) continue;
     const session = { id, savedAt: text(["history", name, id, "savedAt"]), sets: sets("history", id, name) };
     const linkedWorkout = get(["historyLink", name, id]);
-    if (!allWorkouts.some((workout) => workout.id === linkedWorkout) && !belongsToWorkout(name, session, allWorkouts)) append(name, session);
+    if (!(typeof linkedWorkout === "string" && workoutIds.has(linkedWorkout)) && !belongsToWorkout(name, session)) append(name, session);
   }
   // Completed workouts are authoritative for their derived progression history.
   // This also removes stale lift copies after a workout edit or deletion.

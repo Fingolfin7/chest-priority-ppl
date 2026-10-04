@@ -18,9 +18,9 @@ async function eventually(check) {
   assert.ok(check(), 'Expected transport event was not delivered.');
 }
 function fixture(identity) {
-  const events = { requests: [], paired: [], connected: [], messages: [], statuses: [] };
+  const events = { paired: [], connected: [], messages: [], statuses: [] };
   const transport = new PeerSyncTransport({ identity, name: identity.id.slice(-8), devices: [],
-    onStatus: status => events.statuses.push(status), onPairRequest: request => events.requests.push(request),
+    onStatus: status => events.statuses.push(status),
     onPaired: device => events.paired.push(device), onConnected: id => events.connected.push(id),
     onDisconnected: () => {}, onMessage: (id, bytes) => events.messages.push({ id, bytes }),
   });
@@ -35,18 +35,13 @@ function wire(inviter, joiner, invite) {
   return { incoming, outgoing };
 }
 
-test('transport gates approval, chunks transfers and disconnects removed peers', async t => {
+test('transport pairs from an invitation, chunks transfers and disconnects removed peers', async t => {
   const [alice, bob] = await Promise.all([createIdentity(), createIdentity()]);
   const a = fixture(alice), b = fixture(bob);
   t.after(() => { a.transport.stop(); b.transport.stop(); });
-  const invite = await parseInvitation(createInvitation(alice));
-  a.transport.invite = invite;
+  a.transport.ready = async () => {};
+  const invite = await parseInvitation(await a.transport.createInvite());
   wire(a, b, invite);
-  await eventually(() => a.events.requests.length === 1);
-  assert.equal(a.events.connected.length + b.events.connected.length, 0);
-  assert.equal(a.events.messages.length + b.events.messages.length, 0);
-  await assert.rejects(b.transport.send(alice.id, new Uint8Array([1])), /disconnected/);
-  await a.transport.approvePair(bob.id);
   await eventually(() => b.events.connected.length === 1);
   assert.equal(a.events.paired[0].id, bob.id);
   assert.equal(b.events.paired[0].id, alice.id);
@@ -68,7 +63,7 @@ test('unknown identity without invitation receives no workout data', async t => 
   t.after(() => { a.transport.stop(); b.transport.stop(); });
   const { incoming } = wire(a, b);
   await eventually(() => !incoming.open);
-  assert.equal(a.events.requests.length + a.events.messages.length + a.events.connected.length, 0);
+  assert.equal(a.events.messages.length + a.events.connected.length + a.events.paired.length, 0);
   assert.equal(incoming.sent.length, 0);
   assert.ok(a.events.statuses.some(status => status.includes('not been paired')));
 });
@@ -78,8 +73,11 @@ test('encrypted workout frames cannot bypass pairing approval', async t => {
   const a = fixture(alice), b = fixture(bob);
   t.after(() => { a.transport.stop(); b.transport.stop(); });
   const invite = await parseInvitation(createInvitation(alice)); a.transport.invite = invite;
+  a.transport.approve = async () => {}; // Hold the inviter between authentication and approval.
   const { outgoing } = wire(a, b, invite);
-  await eventually(() => a.events.requests.length === 1);
+  await eventually(() => a.transport.connections.get(bob.id)?.requested === true);
+  assert.equal(a.events.connected.length + b.events.connected.length, 0);
+  await assert.rejects(b.transport.send(alice.id, new Uint8Array([1])), /disconnected/);
   const state = b.transport.connections.get(alice.id);
   const frame = await state.channel.seal({ kind: 'chunk', id: randomToken(), index: 0, total: 1, data: 'AQ' });
   outgoing.send(JSON.stringify(frame));
@@ -92,10 +90,8 @@ test('closing a connection during decryption discards its pending message', asyn
   const [alice, bob] = await Promise.all([createIdentity(), createIdentity()]);
   const a = fixture(alice), b = fixture(bob);
   t.after(() => { a.transport.stop(); b.transport.stop(); });
-  const invite = await parseInvitation(createInvitation(alice)); a.transport.invite = invite;
-  wire(a, b, invite);
-  await eventually(() => a.events.requests.length === 1);
-  await a.transport.approvePair(bob.id);
+  a.transport.ready = async () => {};
+  wire(a, b, await parseInvitation(await a.transport.createInvite()));
   await eventually(() => b.events.connected.length === 1);
   const state = a.transport.connections.get(bob.id);
   let decrypted;
@@ -108,17 +104,15 @@ test('closing a connection during decryption discards its pending message', asyn
   assert.equal(state.active, false);
 });
 
-test('automatic QR invitation authenticates, links once, and transfers without an approval prompt', async t => {
+test('an invitation authenticates, links once, and cannot be reused by another browser', async t => {
   const [alice,bob,stranger] = await Promise.all([createIdentity(),createIdentity(),createIdentity()]);
   const a=fixture(alice),b=fixture(bob),c=fixture(stranger);
   t.after(()=>{a.transport.stop();b.transport.stop();c.transport.stop();});
   a.transport.ready=async()=>{};
-  const invite=await parseInvitation(await a.transport.createInvite(true));
+  const invite=await parseInvitation(await a.transport.createInvite());
   wire(a,b,invite);
   await eventually(()=>a.events.connected.length===1 && b.events.connected.length===1);
-  assert.equal(a.events.requests.length,0);
   assert.equal(a.transport.invite,undefined);
-  assert.equal(a.transport.autoApproveInvite,undefined);
   await b.transport.send(alice.id,new Uint8Array([42]));
   await eventually(()=>a.events.messages.length===1);
   const {outgoing}=wire(a,c,invite);
@@ -127,12 +121,12 @@ test('automatic QR invitation authenticates, links once, and transfers without a
   assert.equal(a.events.paired.length,1);
 });
 
-test('automatic QR pairing still rejects the wrong secret and cancelled codes', async t => {
+test('pairing rejects the wrong secret and cancelled codes', async t => {
   const [alice,bob] = await Promise.all([createIdentity(),createIdentity()]);
   const a=fixture(alice),b=fixture(bob);
   t.after(()=>{a.transport.stop();b.transport.stop();});
   a.transport.ready=async()=>{};
-  const invite=await parseInvitation(await a.transport.createInvite(true));
+  const invite=await parseInvitation(await a.transport.createInvite());
   const wrong=wire(a,b,{...invite,secret:randomToken()});
   await eventually(()=>!wrong.outgoing.open);
   assert.equal(a.events.paired.length,0);
@@ -140,21 +134,4 @@ test('automatic QR pairing still rejects the wrong secret and cancelled codes', 
   const cancelled=wire(a,b,invite);
   await eventually(()=>!cancelled.outgoing.open);
   assert.equal(a.events.paired.length,0);
-  assert.equal(a.transport.autoApproveInvite,undefined);
-});
-
-test('manual invitations do not inherit automatic approval from a replaced QR', async t => {
-  const [alice,bob] = await Promise.all([createIdentity(),createIdentity()]);
-  const a=fixture(alice),b=fixture(bob);
-  t.after(()=>{a.transport.stop();b.transport.stop();});
-  a.transport.ready=async()=>{};
-  const old=await parseInvitation(await a.transport.createInvite(true));
-  const manual=await parseInvitation(await a.transport.createInvite());
-  assert.equal(a.transport.autoApproveInvite,undefined);
-  const stale=wire(a,b,old);
-  await eventually(()=>!stale.outgoing.open);
-  assert.equal(a.events.requests.length,0);
-  wire(a,b,manual);
-  await eventually(()=>a.events.requests.length===1);
-  assert.equal(a.events.connected.length,0);
 });

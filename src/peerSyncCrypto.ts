@@ -43,16 +43,12 @@ export async function parseInvitation(input: string, now = Date.now()): Promise<
   let encoded = input.trim();
   if (encoded.includes("#")) encoded = new URLSearchParams(encoded.slice(encoded.indexOf("#") + 1)).get("pair") ?? "";
   if (encoded.startsWith("pair=")) encoded = encoded.slice(5);
-  let invite: PairInvite;
-  if (encoded.startsWith("rppl2.")) {
-    const bytes = decodeBytes(encoded.slice(6), 105);
-    if (bytes.length !== 105) throw new Error("This is not a valid device invitation.");
-    const publicKey = encodeBytes(bytes.subarray(0, 65));
-    invite = { v: 1, id: await deviceId(publicKey), publicKey, secret: encodeBytes(bytes.subarray(65, 97)), expiresAt: Number(new DataView(bytes.buffer).getBigUint64(97)) };
-  } else {
-    // Existing QR codes and pasted links still work during the rollout.
-    invite = JSON.parse(decoder.decode(decodeBytes(encoded, 2048))) as PairInvite;
-  }
+  // Invitations expire within minutes, so only the compact format is accepted.
+  if (!encoded.startsWith("rppl2.")) throw new Error("This is not a valid device invitation. Show a fresh QR code.");
+  const bytes = decodeBytes(encoded.slice(6), 105);
+  if (bytes.length !== 105) throw new Error("This is not a valid device invitation.");
+  const publicKey = encodeBytes(bytes.subarray(0, 65));
+  const invite: PairInvite = { v: 1, id: await deviceId(publicKey), publicKey, secret: encodeBytes(bytes.subarray(65, 97)), expiresAt: Number(new DataView(bytes.buffer).getBigUint64(97)) };
   if (!invite || invite.v !== 1 || typeof invite.id !== "string" || typeof invite.publicKey !== "string" || typeof invite.secret !== "string" || !Number.isSafeInteger(invite.expiresAt)) throw new Error("This is not a valid device invitation.");
   if (invite.expiresAt <= now || invite.expiresAt > now + INVITE_LIFETIME_MS + 30_000) throw new Error("This device invitation has expired. Create a new one.");
   if (decodeBytes(invite.secret, 32).length !== 32 || await deviceId(invite.publicKey) !== invite.id) throw new Error("Invalid device invitation.");

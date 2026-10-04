@@ -1,10 +1,9 @@
 import Peer, { type DataConnection, type PeerOptions } from 'peerjs';
 import { createInvitation, createSecureChannel, decodeBytes, deviceId, encodeBytes, pairingProof, parseInvitation, randomToken, verifyPairingProof, type DeviceIdentity, type PairInvite, type SealedFrame, type SecureChannel } from './peerSyncCrypto.ts';
 export type PairedDevice = { id: string; publicKey: string; name: string; lastSyncedAt?: string };
-export type PairRequest = PairedDevice;
 export type PeerSyncTransportOptions = {
   identity: DeviceIdentity; name: string; devices: PairedDevice[]; peerOptions?: Partial<PeerOptions>;
-  onStatus(status: string): void; onPairRequest(request: PairRequest): void; onPaired(device: PairedDevice): void;
+  onStatus(status: string): void; onPaired(device: PairedDevice): void;
   onMessage(peerId: string, message: Uint8Array): void; onConnected(peerId: string): void; onDisconnected(peerId: string): void;
 };
 type Hello = { v: 1; type: 'hello'; publicKey: string; name: string; nonce: string; proof?: string; expiresAt?: number };
@@ -29,7 +28,6 @@ export class PeerSyncTransport {
   private peer?: Peer;
   private connections = new Map<string, Connection>();
   private invite?: PairInvite;
-  private autoApproveInvite?: PairInvite;
   private pendingInviteId?: string;
   private retry?: ReturnType<typeof setInterval>;
   private running = false;
@@ -67,7 +65,6 @@ export class PeerSyncTransport {
     if (this.retry) clearInterval(this.retry);
     this.retry = undefined;
     this.invite = undefined;
-    this.autoApproveInvite = undefined;
     this.pendingInviteId = undefined;
     for (const state of [...this.connections.values()]) this.close(state);
     this.peer?.destroy(); this.peer = undefined;
@@ -93,17 +90,18 @@ export class PeerSyncTransport {
     while (this.running && !this.blocked && !this.peer?.open && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 100));
     if (!this.peer?.open || this.blocked || !this.running) throw new Error(this.blocked ? 'Close the other Rolling PPL tab, then retry sync.' : 'Could not reach the pairing service. Check your connection and retry.');
   }
-  async createInvite(autoApprove = false): Promise<string> {
+  // The one-use secret in a fresh invitation authenticates the joining browser,
+  // so a matching, unexpired invitation links without a separate approval step.
+  async createInvite(): Promise<string> {
     await this.ready();
     if (this.pendingInviteId) this.disconnect(this.pendingInviteId);
     const encoded = createInvitation(this.options.identity);
     this.invite = await parseInvitation(encoded);
-    this.autoApproveInvite = autoApprove ? this.invite : undefined;
     this.pendingInviteId = undefined;
     return encoded;
   }
   cancelInvite(): void {
-    this.invite = undefined; this.autoApproveInvite = undefined; this.pendingInviteId = undefined;
+    this.invite = undefined; this.pendingInviteId = undefined;
     for (const state of [...this.connections.values()]) if (state.invite && !state.outbound && !state.approved) this.close(state);
   }
   async joinInvite(input: string): Promise<void> {
@@ -115,17 +113,14 @@ export class PeerSyncTransport {
     this.connect(invite.id, invite);
     this.options.onStatus('Linking securely with your other browser…');
   }
-  async approvePair(id: string): Promise<void> {
-    const state = this.connections.get(id);
-    if (!state || state.closed || !state.requested || !state.authenticated || !state.remote || !state.invite || this.invite !== state.invite || state.invite.expiresAt <= Date.now()) throw new Error('This pairing request has expired. Create a new invitation.');
+  private async approve(state: Connection): Promise<void> {
+    if (state.closed || !state.requested || !state.authenticated || !state.remote || !state.invite || this.invite !== state.invite || state.invite.expiresAt <= Date.now()) throw new Error('This pairing request has expired. Create a new invitation.');
     this.invite = undefined; this.pendingInviteId = undefined;
-    this.autoApproveInvite = undefined;
     state.approved = true;
     this.remember(state.remote);
     await this.control(state, { kind: 'approved' });
     this.activate(state);
   }
-  rejectPair(id: string): void { this.disconnect(id); this.options.onStatus('Pairing declined.'); }
   async send(id: string, bytes: Uint8Array): Promise<void> {
     const state = this.connections.get(id);
     if (!state?.active || state.closed) throw new Error('The paired browser is disconnected.');
@@ -197,8 +192,7 @@ export class PeerSyncTransport {
       if (state.invite && !state.outbound && !state.approved) {
         if (!state.remote || state.invite !== this.invite || state.invite.expiresAt <= Date.now()) throw new Error('Pairing invitation expired.');
         state.requested = true;
-        if (this.autoApproveInvite === state.invite) await this.approvePair(state.remote.id);
-        else this.options.onPairRequest(state.remote);
+        await this.approve(state);
       } else this.activate(state);
       return;
     }

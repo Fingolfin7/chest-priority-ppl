@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { PeerSyncManager } from '../src/peerSyncManager.ts';
+import { PeerSyncManager, reuseUnchanged } from '../src/peerSyncManager.ts';
 import { emptySyncSnapshot } from '../src/peerSyncModel.ts';
 import * as A from '@automerge/automerge';
 import { projectSyncDoc, updateSyncDoc } from '../src/peerSyncModel.ts';
@@ -114,4 +114,28 @@ test('queued messages from an earlier connection are discarded after reconnect',
   manager.transport = transport; manager.connected.add('peer'); manager.epochs.set('peer',2);
   await manager.receive('peer',new Uint8Array([2,...new TextEncoder().encode('["removed-peer"]')]),transport,1);
   assert.equal(manager.revoked.size,0);
+});
+
+test('published snapshots keep unchanged branches so mirrors and React skip untouched history', () => {
+  const previous = { history: { Bench: [{ id: 'a', sets: [{ load: '50', reps: '8' }] }] }, next: 'push', drafts: {} };
+  const next = structuredClone(previous); next.next = 'pull';
+  const merged = reuseUnchanged(previous, next);
+  assert.notEqual(merged, previous);
+  assert.equal(merged.history, previous.history);
+  assert.equal(merged.drafts, previous.drafts);
+  assert.equal(merged.next, 'pull');
+  assert.equal(reuseUnchanged(previous, structuredClone(previous)), previous);
+  const named = reuseUnchanged({}, JSON.parse('{"__proto__":[1]}'));
+  assert.deepEqual(Object.keys(named), ['__proto__']);
+  assert.equal(Object.getPrototypeOf(named), Object.prototype);
+});
+
+test('a seed function is not evaluated until storage shows there is no saved document', () => {
+  let calls = 0;
+  const manager = new PeerSyncManager(() => { calls++; return emptySyncSnapshot(); });
+  assert.equal(calls, 0);
+  manager.plant();
+  assert.equal(calls, 1);
+  manager.plant();
+  assert.equal(calls, 1);
 });

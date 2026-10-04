@@ -526,7 +526,8 @@ function initialSyncSnapshot(): SyncSnapshot {
 }
 
 async function boot() {
-  const manager = new PeerSyncManager(initialSyncSnapshot());
+  // The localStorage seed is only read when this browser has no saved sync document.
+  const manager = new PeerSyncManager(initialSyncSnapshot);
   await manager.initialize();
   await attachBodyProgressSync(manager);
   document.addEventListener("visibilitychange", () => { if (document.hidden) manager.flushPendingInputs(); });
