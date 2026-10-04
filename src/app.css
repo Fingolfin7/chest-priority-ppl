@@ -2732,7 +2732,7 @@ footer p {
 }
 
 .primary-nav {
-  grid-template-columns: repeat(4,minmax(0,1fr));
+  grid-template-columns: repeat(5,minmax(0,1fr));
 }
 
 @media (min-width:601px) and (max-width:1150px) {
@@ -4649,7 +4649,7 @@ footer {
     inset: auto 0 0;
     z-index: 50;
     display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(5, minmax(0, 1fr));
     gap: 3px;
     background: color-mix(in srgb, var(--bg) 93%, transparent);
     border-top: 1px solid var(--line);

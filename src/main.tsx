@@ -24,6 +24,7 @@ import {
 import { defaultWorkouts, defaultPlanState } from "./defaultPlan";
 import { attachBodyProgressSync } from "./bodyProgressModel";
 import { BodyProgress } from "./BodyProgress";
+import { Nutrition } from "./Nutrition";
 import { PhotoProgress } from "./PhotoProgress";
 import { PlanPanel, SessionPlanEditor } from "./PlanPanel";
 import { currentPhase, trainingForWorkout, normalizePlanState, phaseSequence, phaseProgramName, phaseProgramId, nextWorkoutForPhase, PLAN_STORAGE_KEY, type TrainingPhase, type PlanExercise, type PlanWorkouts } from "./planModel";
@@ -37,14 +38,14 @@ import "./app.css";
 import "./exerciseLibrary.css";
 
 type Theme = "light" | "dark";
-type AppView = "train" | "sessions" | "progress" | "plan";
+type AppView = "train" | "food" | "sessions" | "progress" | "plan";
 type Demo = { label: string; slug: string };
 type Exercise = PlanExercise;
 type LightboxImage = { src: string; alt: string };
 type InstallPromptEvent = Event & { prompt: () => Promise<void>; userChoice: Promise<{ outcome: "accepted" | "dismissed" }> };
 
 function NavigationIcon({ view }: { view: AppView }) {
-  return <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">{view === "train" ? <path d="M6 7v10M18 7v10M3 10v4M21 10v4M6 12h12" /> : view === "progress" ? <path d="m3 17 6-6 4 3 8-9M17 5h4v4" /> : view === "sessions" ? <><path d="M8 5h13M8 12h13M8 19h13" /><path d="M3 5h1M3 12h1M3 19h1" /></> : <><rect x="5" y="3.5" width="14" height="17" rx="2" /><path d="M9 8h6M9 12h6M9 16h4" /></>}</svg>;
+  return <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">{view === "train" ? <path d="M6 7v10M18 7v10M3 10v4M21 10v4M6 12h12" /> : view === "progress" ? <path d="m3 17 6-6 4 3 8-9M17 5h4v4" /> : view === "sessions" ? <><path d="M8 5h13M8 12h13M8 19h13" /><path d="M3 5h1M3 12h1M3 19h1" /></> : view === "food" ? <><path d="M3.5 11h17a8.5 8.5 0 0 1-17 0Z" /><path d="M9 7.5c0-1.5 1.5-1.5 1.5-3M13.5 7.5c0-1.5 1.5-1.5 1.5-3" /></> : <><rect x="5" y="3.5" width="14" height="17" rx="2" /><path d="M9 8h6M9 12h6M9 16h4" /></>}</svg>;
 }
 
 function ThemeIcon({ theme }: { theme: Theme }) {
@@ -284,7 +285,7 @@ function bindField<K extends keyof SyncSnapshot>(manager: PeerSyncManager, key: 
 }
 
 function App({ manager }: { manager: PeerSyncManager }) {
-  const { history, drafts, checkpoints, exerciseChoices, completed, activeWorkout, next, bodyweight, sessionNote, planState: savedPlanState } = useSyncExternalStore(manager.subscribe, manager.getSnapshot);
+  const { history, drafts, checkpoints, exerciseChoices, completed, activeWorkout, next, bodyweight, sessionNote, planState: savedPlanState, nutrition, bodyProgress } = useSyncExternalStore(manager.subscribe, manager.getSnapshot);
   const planState = useMemo(() => savedPlanState ?? defaultPlanState(), [savedPlanState]);
   const phase = currentPhase(planState);
   const sequence = phaseSequence(phase);
@@ -315,7 +316,7 @@ function App({ manager }: { manager: PeerSyncManager }) {
   const setSessionNote = bindField(manager, "sessionNote");
   const [activeTab, setActiveTab] = useState<WorkoutKey>(() => activeWorkout?.workout ?? next);
   const viewTab = viewSequence.includes(activeTab) ? activeTab : activeWorkout?.workout ?? nextKey;
-  const [appView, setAppView] = useState<AppView>(() => (value => value === "progress" || value === "sessions" || value === "plan" ? value : "train")(readStored<AppView>(APP_VIEW_KEY, "train")));
+  const [appView, setAppView] = useState<AppView>(() => (value => value === "food" || value === "progress" || value === "sessions" || value === "plan" ? value : "train")(readStored<AppView>(APP_VIEW_KEY, "train")));
   const [lightbox, setLightbox] = useState<LightboxImage | null>(null);
   const [autumnOpen, setAutumnOpen] = useState(false);
   const [adjusting, setAdjusting] = useState(false);
@@ -495,7 +496,7 @@ function App({ manager }: { manager: PeerSyncManager }) {
     };
   }, [activeWorkout, checkpoints, drafts, exerciseChoices, activeExercises]);
   return <>
-    <header className="app-header"><div className="app-brand"><h1>Rolling PPL</h1><p>{phaseProgramName(phase)} / no weekly reset</p></div><nav className="primary-nav" aria-label="App sections">{([['train','Train'],['progress','Progress'],['sessions','Sessions'],['plan','Plan']] as const).map(([view,label]) => <button type="button" key={view} className={appView === view ? "active" : ""} aria-current={appView === view ? "page" : undefined} onClick={() => { setAppView(view); if (window.matchMedia('(max-width: 720px)').matches) window.scrollTo({ top: 0, behavior: 'smooth' }); }}><NavigationIcon view={view}/><span>{label}</span>{view === "train" && activeWorkout && <i aria-label="Workout in progress" />}</button>)}</nav><div className="header-actions"><button className="theme-toggle" type="button" onClick={() => setTheme((current) => current === "dark" ? "light" : "dark")} aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} mode`} title={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}><ThemeIcon theme={theme} /></button><details className="utility-menu"><summary>More</summary><div className="utility-menu-panel"><PeerSyncPanel manager={manager} /><button className="utility-button" type="button" onClick={() => setAutumnOpen(true)}>Autumn{failed > 0 && <b aria-label={`${failed} failed`}>{failed}</b>}</button><DataMenu manager={manager} history={history} workouts={completed} onImport={importHistory} />{installPrompt && <button className="install-button" type="button" onClick={installApp}>Install</button>}</div></details></div></header>
+    <header className="app-header"><div className="app-brand"><h1>Rolling PPL</h1><p>{phaseProgramName(phase)} / no weekly reset</p></div><nav className="primary-nav" aria-label="App sections">{([['train','Train'],['food','Food'],['progress','Progress'],['sessions','Sessions'],['plan','Plan']] as const).map(([view,label]) => <button type="button" key={view} className={appView === view ? "active" : ""} aria-current={appView === view ? "page" : undefined} onClick={() => { setAppView(view); if (window.matchMedia('(max-width: 720px)').matches) window.scrollTo({ top: 0, behavior: 'smooth' }); }}><NavigationIcon view={view}/><span>{label}</span>{view === "train" && activeWorkout && <i aria-label="Workout in progress" />}</button>)}</nav><div className="header-actions"><button className="theme-toggle" type="button" onClick={() => setTheme((current) => current === "dark" ? "light" : "dark")} aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} mode`} title={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}><ThemeIcon theme={theme} /></button><details className="utility-menu"><summary>More</summary><div className="utility-menu-panel"><PeerSyncPanel manager={manager} /><button className="utility-button" type="button" onClick={() => setAutumnOpen(true)}>Autumn{failed > 0 && <b aria-label={`${failed} failed`}>{failed}</b>}</button><DataMenu manager={manager} history={history} workouts={completed} onImport={importHistory} />{installPrompt && <button className="install-button" type="button" onClick={installApp}>Install</button>}</div></details></div></header>
     <main>
       {appView === "train" ? <>{summarySession && <WorkoutSummary session={summarySession} history={history} autumnReady={autumnReadyFor(summarySession)} onSync={(session) => void syncWorkout(session)} onConnect={() => setAutumnOpen(true)} onDismiss={() => setDismissedSummary(summarySession.id)} />}
         <TrainingRail next={nextKey} phase={phase} active={activeWorkout} finishEndedAt={finishEndedAt ?? undefined} finishing={finishing} onSetNext={(workout) => { setNext(workout); setActiveTab(workout); }} onStart={startWorkout} onFinish={beginFinish} onCancel={cancelWorkout} />
@@ -507,6 +508,7 @@ function App({ manager }: { manager: PeerSyncManager }) {
         {finishing && activeWorkout && <FinishWorkout free={isFree} workout={workoutLabel(activeWorkout.workout, activeWorkout.training)} bodyweight={bodyweight} note={sessionNote} error={finishError} summary={finishSummary} onBodyweight={setBodyweight} onNote={setSessionNote} onBack={resumeWorkout} onSave={saveFinishedWorkout} />}
         <div className="workout-tabs train-workout-tabs" role="tablist" aria-label="Choose a workout to view">{viewSequence.map((key) => <button key={key} role="tab" aria-selected={viewTab === key} className={`${accentFor(key)}${viewTab === key ? ` active ${key}` : ""}`} onClick={() => setActiveTab(key)}>{viewWorkouts[key].name ?? workoutLabel(key)}<small>{activeWorkout?.workout === key ? "logging now" : `${viewWorkouts[key].exercises.length} exercises`}</small></button>)}</div>
         <Workout key={viewTab} accent={accentFor(viewTab)} free={isFree && activeWorkout?.workout === viewTab} workout={viewTab} data={viewWorkouts[viewTab]} onOpen={setLightbox} history={history} drafts={drafts} choices={exerciseChoices} enabled={activeWorkout?.workout === viewTab && !finishing} activeWorkoutId={activeWorkout?.workout === viewTab ? activeWorkout.id : undefined} checkpoints={checkpoints} onChoiceChange={chooseExercise} onDraftChange={updateDraft} onSave={saveExercise} /><Notes original={phaseProgramId(phase) === defaultPlanState().phases[0].programId} /></>
+        : appView === "food" ? <Nutrition nutrition={nutrition} sessions={completed} body={bodyProgress} onChange={(edit) => manager.set("nutrition", edit)} />
         : appView === "plan" ? <PlanPanel state={planState} sessions={completed} activePhase={activeWorkout?.training?.phaseName} onSave={savePlan} /> : appView === "sessions" ? <SessionHistory sessions={completed} definitions={sessionDefinitions} onSave={saveSessionEdit} onDelete={deleteSession} /> : <Progress sessions={completed} history={history} phase={phase} phases={planState.phases} onPlan={() => setAppView("plan")} />}
     </main>
     <footer><p>Exercise imagery from the public-domain <a href="https://github.com/yuhonas/free-exercise-db" target="_blank" rel="noreferrer">Free Exercise DB</a> (Unlicense).</p></footer>

@@ -6,7 +6,8 @@ A phone-first, chest-prioritized rolling Push/Pull/Legs workout tracker. The seq
 
 - Persistent next-workout sequence with start, elapsed-time, and finish controls
 - Free sessions with exercises chosen as you go, shared progression targets, and no change to the queued programme workout
-- Separate Train, Progress, Sessions, and Plan destinations, with focused workout tabs inside Train
+- Separate Train, Food, Progress, Sessions, and Plan destinations, with focused workout tabs inside Train
+- A one-tap food log: meals, snacks, shakes and a supplement checklist, compared with weekly weight change
 - Gym-readable exercise rows with work sets, optional warm-ups, rest, cues, and click-to-enlarge public-domain photos
 - Crash-safe workout drafts and completed sessions with optional peer-to-peer browser sync
 - Previous-session context, per-set target placeholders, and double-progression suggestions
@@ -21,6 +22,14 @@ A phone-first, chest-prioritized rolling Push/Pull/Legs workout tracker. The seq
 - Installable PWA with offline workout access
 - Warm-up, progression, rest, and safety guidance
 - Responsive static build for GitHub Pages
+
+## Food log
+
+**Food** is deliberately low effort. Tap + for each meal, snack or shake and tick off supplements. The rule of thumb: **on a plate or in a bowl = meal; eaten from your hand = snack.** Consistency matters more than precision. Use the arrows or the last-7-days strip to fill in a day you forgot. There are no calories, food search or streaks.
+
+A day counts as logged once anything is tapped, and averages use logged days only, so skipping the app never reads as eating nothing. **Food and weight** compares rolling seven-day weeks: average meals, snacks and shakes beside the change in average weight from the week before (within ±0.2 kg is steady). A week is compared only when it has at least 4 logged days and 3 weigh-ins, plus 3 weigh-ins in the week before. Once two comparable weeks share a trend, it shows what a typical day looked like in weeks you gained, held steady or lost.
+
+Food records sync between paired devices and are included in complete backups. Each day is one record; the latest saved edit wins.
 
 ## Body progress, photos, and training phases
 
@@ -38,7 +47,7 @@ Cloud photo backup uses separate AWS S3, Cognito and serverless API resources; w
 
 When you open an outlook, the app saves a ready forecast at most once a week per metric. **Compare with forecast from** shows that fixed original forecast alongside recorded results and the latest projection. New readings never rewrite the original. Forecasts start when this feature is used; the app does not invent predictions for earlier dates. Saved forecasts live locally and are included in complete backups.
 
-**Data → Backup** downloads workouts, active drafts, plans, body records, goals, measurements, saved forecasts and optionally photos. Credentials and pairing keys are excluded. Keep the file outside this browser; the displayed timestamp means a download started, not that an external backup was verified. **Data → Restore** validates and merges complete backups or workout-history files, preserving unrelated records. Matching workout IDs use the backup copy; body records use their latest saved version. An existing active workout stays intact; restoring into an empty browser recovers the saved draft. **Data → Workout export** provides workout-only JSON/CSV transfers.
+**Data → Backup** downloads workouts, active drafts, plans, food log, body records, goals, measurements, saved forecasts and optionally photos. Credentials and pairing keys are excluded. Keep the file outside this browser; the displayed timestamp means a download started, not that an external backup was verified. **Data → Restore** validates and merges complete backups or workout-history files, preserving unrelated records. Matching workout IDs use the backup copy; body records use their latest saved version. An existing active workout stays intact; restoring into an empty browser recovers the saved draft. **Data → Workout export** provides workout-only JSON/CSV transfers.
 
 Independent weigh-ins, tape measurements, goals, workouts and training phases use device sync. Photos use explicit file backups or optional account-based cloud backup; they are not sent through device sync. Saved forecasts travel through complete backups. Body edits and deletions merge by record identity and saved timestamp. Update both paired browsers before exchanging this expanded data.
 

@@ -1,6 +1,7 @@
 import { createSyncDoc, projectSyncDoc, type SyncSnapshot } from './peerSyncModel.ts';
 import { mergePlanStates } from './planModel.ts';
 import { emptyBodyProgress, mergeBodyProgress } from './bodyProgressModel.ts';
+import { emptyNutrition, mergeNutrition } from './nutritionModel.ts';
 
 export const FULL_BACKUP_SCHEMA = 'rolling-ppl-complete-backup';
 export const MAX_FULL_BACKUP_BYTES = 300 * 1024 * 1024;
@@ -31,5 +32,6 @@ export function mergeBackupSnapshot(current: SyncSnapshot, incoming: SyncSnapsho
     history,
     planState: mergePlanStates(current.planState, incoming.planState),
     ...((current.bodyProgress || incoming.bodyProgress) ? { bodyProgress: mergeBodyProgress(current.bodyProgress ?? emptyBodyProgress(), incoming.bodyProgress ?? emptyBodyProgress()) } : {}),
+    ...((current.nutrition || incoming.nutrition) ? { nutrition: mergeNutrition(current.nutrition ?? emptyNutrition(), incoming.nutrition ?? emptyNutrition()) } : {}),
   };
 }

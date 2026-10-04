@@ -1,4 +1,4 @@
-const CACHE_NAME = "rolling-ppl-v43";
+const CACHE_NAME = "rolling-ppl-v44";
 // Keep on-demand library images across app upgrades. Never cache unrelated hosts.
 const EXERCISE_IMAGE_CACHE = "rolling-ppl-exercise-images-v1";
 const EXERCISES = [

@@ -5,6 +5,7 @@ import type { DraftMap } from "./drafts.ts";
 import type { ActiveWorkout, CompletedWorkout, WorkoutKey, WorkoutSync } from "./sessionModel.ts";
 import { isWorkoutKey } from "./sessionModel.ts";
 import { emptyBodyProgress, MEASUREMENT_KEYS, mergeBodyProgress, parseBodyProgress, type BodyProgressData } from "./bodyProgressModel.ts";
+import { emptyNutrition, mergeNutrition, newerNutritionRecord, parseNutrition, parseNutritionDay, parseNutritionSettings, type NutritionData } from "./nutritionModel.ts";
 
 export type SyncSnapshot = {
   history: HistoryMap;
@@ -18,6 +19,7 @@ export type SyncSnapshot = {
   sessionNote: string;
   planState?: PlanState;
   bodyProgress?: BodyProgressData;
+  nutrition?: NutritionData;
 };
 
 // One shared map object, with scalar registers at stable paths. Creating nested
@@ -153,6 +155,13 @@ function flatten(snapshot: SyncSnapshot, relatedWorkouts = snapshot.completed): 
     body.deletions.forEach((record) => put(["body", "deletion", record.kind, record.id, record.deletedAt], JSON.stringify(record)));
     put(["body", "goal", body.goal.updatedAt], JSON.stringify(body.goal));
   }
+  if (snapshot.nutrition) {
+    // One register per day (and one for the supplement list) keeps frequent
+    // taps from growing the document. Each value carries its own save stamp.
+    const nutrition = parseNutrition(snapshot.nutrition);
+    nutrition.days.forEach((day) => put(["nutrition", "day", day.date], JSON.stringify(day)));
+    put(["nutrition", "settings"], JSON.stringify(nutrition.settings));
+  }
   return fields;
 }
 
@@ -178,10 +187,26 @@ function bodyRecord(parts: string[], value: Scalar): BodyProgressData {
   return body;
 }
 
+function nutritionRecord(parts: string[], value: Scalar) {
+  if (typeof value !== "string") throw new Error("Invalid nutrition sync record.");
+  if (parts[1] === "day" && parts.length === 3) {
+    const day = parseNutritionDay(JSON.parse(value));
+    if (day.date !== parts[2]) throw new Error("Invalid nutrition sync identity.");
+    return day;
+  }
+  if (parts[1] === "settings" && parts.length === 2) return parseNutritionSettings(JSON.parse(value));
+  throw new Error("Invalid nutrition sync path.");
+}
+// Concurrent nutrition edits converge on the latest saved version everywhere.
+function newestNutritionValue(parts: string[], values: Scalar[]): Scalar {
+  return values.reduce((a, b) => newerNutritionRecord({ updatedAt: nutritionRecord(parts, a).updatedAt, value: String(a) }, { updatedAt: nutritionRecord(parts, b).updatedAt, value: String(b) }).value === String(a) ? a : b);
+}
+
 function projectedValue(parts: string[], value: Scalar, choices: ReturnType<typeof alternatives>): Scalar {
   // A same-ID, same-timestamp import converges using the same lexical tie break
   // as the standalone store. All alternatives are validated before selection.
   if (parts[0] === "body") return [value, ...choices.map((choice) => choice.value)].reduce((a, b) => String(a) >= String(b) ? a : b);
+  if (parts[0] === "nutrition") return newestNutritionValue(parts, [value, ...choices.map((choice) => choice.value)]);
   return parts.at(-1) === "alive" && choices.some((choice) => choice.value === false) ? false : value;
 }
 
@@ -250,6 +275,8 @@ export function updateSyncDoc(doc: Automerge.Doc<SyncData>, previous: SyncSnapsh
     // Versions are immutable even during journal replay or same-stamp edits.
     // Keep the deterministic winner instead of replacing it with an older copy.
     if (parts[0] === "body" && Object.hasOwn(doc.values, key) && String(readFields(doc).get(key)) >= String(value)) return;
+    // An older copy of a day (journal replay, stale tab) never replaces a newer save.
+    if (parts[0] === "nutrition" && Object.hasOwn(doc.values, key) && newestNutritionValue(parts, [readFields(doc).get(key)!, value]) !== value) return;
     // Crash-journal replay must not duplicate operations or resolve a conflict.
     if (Object.hasOwn(doc.values, key) && decoded(doc.values[key]) === value) return;
     writes.set(key, value);
@@ -378,6 +405,7 @@ function checkpoint(raw: Scalar) {
 function validateField(parts: string[], value: Scalar) {
   const kind = parts[0]; const field = parts.at(-1);
   if (kind === "body") { bodyRecord(parts, value); return; }
+  if (kind === "nutrition") { nutritionRecord(parts, value); return; }
   let validPath = false;
   if (kind === "workout" && parts.length === 3) validPath = ["alive", "workout", "startedAt", "endedAt", "bodyweight", "note", "sync", "training"].includes(field!);
   if (kind === "active" && parts.length === 3) validPath = ["alive", "workout", "startedAt", "training"].includes(field!);
@@ -553,7 +581,14 @@ function projected(fields: Flat): SyncSnapshot {
     if (parts[1] === "goal") bodyProgress.goal = mergeBodyProgress({ ...emptyBodyProgress(), goal: bodyProgress.goal }, record).goal;
   }
   if (bodyProgress) bodyProgress = mergeBodyProgress(emptyBodyProgress(), bodyProgress);
-  return { ...(planState ? { planState } : {}), ...(bodyProgress ? { bodyProgress } : {}), history, completed, drafts, activeWorkout, next: text(["state", "next"], "push") as WorkoutKey, checkpoints, exerciseChoices,
+  let nutrition: NutritionData | undefined;
+  for (const { parts, value } of entries) if (parts[0] === "nutrition") {
+    const record = nutritionRecord(parts, value);
+    nutrition ??= emptyNutrition();
+    if ("date" in record) nutrition.days.push(record); else nutrition.settings = record;
+  }
+  if (nutrition) nutrition = mergeNutrition(emptyNutrition(), nutrition);
+  return { ...(planState ? { planState } : {}), ...(bodyProgress ? { bodyProgress } : {}), ...(nutrition ? { nutrition } : {}), history, completed, drafts, activeWorkout, next: text(["state", "next"], "push") as WorkoutKey, checkpoints, exerciseChoices,
     bodyweight: text(["draft", scope, "bodyweight"], ""), sessionNote: text(["draft", scope, "note"], "") };
 }
 
@@ -596,7 +631,7 @@ export function listSyncConflicts(doc: Automerge.Doc<SyncData>): SyncConflict[] 
     const unique = Array.from(new Map(options.map((option) => [JSON.stringify(option.value), option])).values());
     if (unique.length < 2) continue; // Identical independent imports are not conflicts.
     const parts = parsePath(key);
-    if (parts[0] === "body") continue; // Timestamped body records converge through their model merge.
+    if (parts[0] === "body" || parts[0] === "nutrition") continue; // Timestamped records converge through their model merge.
     result.push({ key, label: conflictLabel(parts, fields), options: unique.map(({ id, value }) => ({ id, value: parts.at(-1) === "alive" ? (value ? "Keep record" : "Delete record") : value === null ? "None" : String(value) })) });
   }
   return result.sort((a, b) => a.key.localeCompare(b.key));
