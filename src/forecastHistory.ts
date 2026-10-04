@@ -130,7 +130,7 @@ export function createForecastSnapshot(input: SnapshotRequest): ForecastSnapshot
   }
 }
 
-function parseSnapshot(value: unknown, today: string): ForecastSnapshot {
+function parseSnapshot(value: unknown, today?: string): ForecastSnapshot {
   const data = object(value);
   const kind = data.kind;
   if (kind !== 'weight' && kind !== 'lift' && kind !== 'measurement') throw new Error('Invalid forecast type.');
@@ -142,7 +142,7 @@ function parseSnapshot(value: unknown, today: string): ForecastSnapshot {
   if (typeof data.targetLabel !== 'string' || !data.targetLabel.trim() || data.targetLabel.length > 200) throw new Error('Invalid forecast label.');
   if (!validTimestamp(data.issuedAt) || !validDate(data.observationCutoff)) throw new Error('Invalid forecast issue date.');
   const observationCutoff = data.observationCutoff;
-  if (observationCutoff > today) throw new Error('Invalid forecast issue date.');
+  if (today !== undefined && observationCutoff > today) throw new Error('Invalid forecast issue date.');
   if (new Date(data.issuedAt).toISOString() !== data.issuedAt) throw new Error('Invalid forecast issue timestamp.');
   if (data.modelVersion !== PROJECTION_MODEL_VERSION && (typeof data.modelVersion !== 'string' || !data.modelVersion.trim() || data.modelVersion.length > 100)) throw new Error('Invalid forecast model version.');
   if (data.status !== 'ready') throw new Error('Only ready forecasts can be saved.');
@@ -207,7 +207,9 @@ function parseSnapshot(value: unknown, today: string): ForecastSnapshot {
   };
 }
 
-export function parseForecastHistory(value: unknown, today = localDay()): ForecastHistoryBackup {
+// Pass `today` only when issuing a snapshot. Stored, merged and restored history
+// accepts any cutoff: another device's clock or time zone may be ahead.
+export function parseForecastHistory(value: unknown, today?: string): ForecastHistoryBackup {
   if (typeof value === 'string') {
     if (value.length > MAX_FORECAST_HISTORY_BYTES) throw new Error('Forecast history backup exceeds the 32 MiB limit.');
     try { value = JSON.parse(value); } catch { throw new Error('Forecast history backup is not valid JSON.'); }

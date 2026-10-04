@@ -1,4 +1,4 @@
-const CACHE_NAME = "rolling-ppl-v41";
+const CACHE_NAME = "rolling-ppl-v42";
 // Keep on-demand library images across app upgrades. Never cache unrelated hosts.
 const EXERCISE_IMAGE_CACHE = "rolling-ppl-exercise-images-v1";
 const EXERCISES = [
@@ -20,11 +20,17 @@ self.addEventListener("install", (event) => {
     const cache = await caches.open(CACHE_NAME);
     await cache.addAll(APP_SHELL.map((url) => new Request(url, { cache: "reload" })));
     const page = await cache.match("./");
+    const builtAssets = new Set();
     if (page) {
       const html = await page.clone().text();
-      const builtAssets = [...html.matchAll(/(?:src|href)="(\.\/assets\/[^"]+)"/g)].map((match) => match[1]);
-      await cache.addAll(builtAssets.map((url) => new Request(url, { cache: "reload" })));
+      for (const match of html.matchAll(/(?:src|href)="(\.\/assets\/[^"]+)"/g)) builtAssets.add(match[1]);
     }
+    // The build manifest adds assets index.html does not reference, such as the
+    // Automerge WASM the app needs before it can open offline.
+    const manifest = await fetch("./asset-manifest.json", { cache: "reload" });
+    if (!manifest.ok) throw new Error("The asset manifest is unavailable.");
+    for (const url of await manifest.json()) if (typeof url === "string" && url.startsWith("./assets/")) builtAssets.add(url);
+    await cache.addAll([...builtAssets].map((url) => new Request(url, { cache: "reload" })));
     // The first page may fetch configuration before this worker takes control.
     // Cache it on install too, without making optional backup a PWA requirement.
     try {

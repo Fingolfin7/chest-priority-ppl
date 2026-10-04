@@ -24,6 +24,13 @@ Parameters:
     Default: 1073741824
     MinValue: 8388608
     MaxValue: 10737418240
+  SelfSignup:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['true', 'false']
+    Description: Allow anyone to create an account on the hosted login page. Keep 'false' for a personal deployment and add users with cognito-idp admin-create-user.
+Conditions:
+  AllowSelfSignup: !Equals [!Ref SelfSignup, 'true']
 Resources:
   PhotoBucket:
     Type: AWS::S3::Bucket
@@ -109,6 +116,8 @@ Resources:
       UserPoolTier: LITE
       UsernameAttributes: [email]
       AutoVerifiedAttributes: [email]
+      AdminCreateUserConfig:
+        AllowAdminCreateUserOnly: !If [AllowSelfSignup, false, true]
       UsernameConfiguration:
         CaseSensitive: false
       AccountRecoverySetting:

@@ -4,10 +4,11 @@ import { workoutBelongsToPhase } from './planModel.ts';
 import { localDay, MEASUREMENT_KEYS, type BodyMeasurement, type WeightReading } from './bodyProgressModel.ts';
 
 export function suggestedWeightMilestones(latest: number | undefined, target: number): number[] {
-  if (latest === undefined || !Number.isFinite(latest) || !Number.isFinite(target) || latest <= 0 || target > 500 || target <= latest) return [];
-  const first = Math.floor(latest) + 1;
+  if (latest === undefined || !Number.isFinite(latest) || !Number.isFinite(target) || latest <= 0 || target <= 0 || target > 500 || target === latest) return [];
   const result: number[] = [];
-  for (let value = first; value < target; value += 1) result.push(value);
+  // Whole kilograms strictly between the latest reading and the goal, either direction.
+  if (target > latest) for (let value = Math.floor(latest) + 1; value < target; value += 1) result.push(value);
+  else for (let value = Math.ceil(latest) - 1; value > target; value -= 1) result.unshift(value);
   return result;
 }
 

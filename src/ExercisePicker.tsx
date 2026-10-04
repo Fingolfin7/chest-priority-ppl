@@ -32,7 +32,7 @@ export function ExercisePicker({ catalog, excluded = [], disabled = false, onSel
     })}</div>
     {available.length > limit && <button type="button" className="text-action" onClick={() => setLimit(limit + 30)}>Show more exercises</button>}
     {!available.length && <p>No matching exercises. Try another search or clear the filters.</p>}
-    {query.trim() && !known && !excluded.some((name) => normalizeExerciseSearch(name) === normalizeExerciseSearch(query)) && <button type="button" className="secondary-action" disabled={disabled} onClick={() => { setPreview({ name: query.trim(), sets: "3", reps: "8–12", rest: "90 sec", warmup: "", cue: "", priority: "must", demos: [] }); setError(""); }}>Create “{query.trim()}”</button>}
+    {query.trim() && !known && !excluded.some((name) => normalizeExerciseSearch(name) === normalizeExerciseSearch(query)) && <button type="button" className={available.length ? "text-action" : "secondary-action"} disabled={disabled} onClick={() => { setPreview({ name: query.trim(), sets: "3", reps: "8–12", rest: "90 sec", warmup: "", cue: "", priority: "must", demos: [] }); setError(""); }}>{available.length ? `Not listed? Create “${query.trim()}”` : `Create “${query.trim()}”`}</button>}
     {preview && <section className="exercise-library-preview" aria-label="Exercise preview">
       <div className="exercise-library-preview-heading"><h4>{preview.name}</h4><button className="text-action" type="button" onClick={() => setPreview(null)}>Close preview</button></div>
       {definition && <p>{definition.primaryMuscles.join(", ")} · {definition.equipment} · {definition.category}</p>}

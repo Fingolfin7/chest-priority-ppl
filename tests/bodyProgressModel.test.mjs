@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { combineWeightReadings, emptyBodyProgress, localDay, mergeBodyProgress, parseBodyNumber, parseBodyProgress, weightMilestones, recentWeightAverages } from "../src/bodyProgressModel.ts";
+import { checkEntryDate, combineWeightReadings, emptyBodyProgress, localDay, mergeBodyProgress, parseBodyNumber, parseBodyProgress, weightGoal, weightMilestones, recentWeightAverages } from "../src/bodyProgressModel.ts";
 
 test('weekly averages count only recorded days and leave missing windows empty',()=>{
   const readings=[{date:'2026-09-27',value:64},{date:'2026-10-01',value:66},{date:'2026-09-24',value:63}];
@@ -54,16 +54,15 @@ test("three readings on a single day cannot earn sustained milestone", () => {
 });
 test("validates real dates, numerical bounds, optional fields and goal rules without inventing missing measurements", () => {
   const data = { ...emptyBodyProgress(), weighIns: [weight("w", "2026-09-20", 66.5)], measurements: [{ id: "m", date: "2026-09-20", chest: 95, note: "left", updatedAt: stamp }], goal: goal([70, 67]) };
-  const parsed = parseBodyProgress(data, "2026-09-20");
+  const parsed = parseBodyProgress(data);
   assert.deepEqual(parsed.goal.targets, [67, 70]);
   assert.equal(parsed.measurements[0].waist, undefined);
-  assert.throws(() => parseBodyProgress({ ...data, weighIns: [weight("w", "2026-02-30", 66)] }, "2026-09-20"), /valid date/);
-  assert.throws(() => parseBodyProgress({ ...data, weighIns: [weight("w", "2026-09-21", 66)] }, "2026-09-20"), /valid date/);
-  for (const kg of [NaN, Infinity, 0, -1, 501, "66"]) assert.throws(() => parseBodyProgress({ ...data, weighIns: [weight("w", "2026-09-20", kg)] }, "2026-09-20"));
-  assert.throws(() => parseBodyProgress({ ...data, measurements: [{ id: "m", date: "2026-09-20", note: "", updatedAt: stamp }] }, "2026-09-20"), /at least one/);
-  assert.throws(() => parseBodyProgress({ ...data, goal: goal([67], 1) }, "2026-09-20"), /2 to 30/);
-  assert.throws(() => parseBodyProgress({ ...data, goal: goal([67, 67]) }, "2026-09-20"), /different/);
-  assert.throws(() => parseBodyProgress({ ...data, weighIns: [data.weighIns[0], data.weighIns[0]] }, "2026-09-20"), /Duplicate/);
+  assert.throws(() => parseBodyProgress({ ...data, weighIns: [weight("w", "2026-02-30", 66)] }), /valid date/);
+  for (const kg of [NaN, Infinity, 0, -1, 501, "66"]) assert.throws(() => parseBodyProgress({ ...data, weighIns: [weight("w", "2026-09-20", kg)] }));
+  assert.throws(() => parseBodyProgress({ ...data, measurements: [{ id: "m", date: "2026-09-20", note: "", updatedAt: stamp }] }), /at least one/);
+  assert.throws(() => parseBodyProgress({ ...data, goal: goal([67], 1) }), /2 to 30/);
+  assert.throws(() => parseBodyProgress({ ...data, goal: goal([67, 67]) }), /different/);
+  assert.throws(() => parseBodyProgress({ ...data, weighIns: [data.weighIns[0], data.weighIns[0]] }), /Duplicate/);
   assert.ok(Number.isNaN(parseBodyNumber("")));
   assert.equal(parseBodyNumber("66,5"), 66.5);
 });
@@ -80,4 +79,36 @@ test("same-timestamp conflicts converge independent of import order", () => {
   const left = { ...emptyBodyProgress(), weighIns: [weight("w", "2026-09-20", 66)] };
   const right = { ...emptyBodyProgress(), weighIns: [weight("w", "2026-09-20", 67)] };
   assert.deepEqual(mergeBodyProgress(left, right), mergeBodyProgress(right, left));
+});
+
+test("only the entry form rejects future dates; stored, merged and synced records still load", () => {
+  assert.throws(() => checkEntryDate("2026-09-21", "2026-09-20"), /on or before today/);
+  assert.throws(() => checkEntryDate("2026-02-30", "2026-09-20"), /valid date/);
+  assert.doesNotThrow(() => checkEntryDate("2026-09-20", "2026-09-20"));
+  const tomorrow = localDay(new Date(Date.now() + 2 * 86_400_000));
+  const stored = { ...emptyBodyProgress(), weighIns: [weight("west", tomorrow, 66)], measurements: [{ id: "m", date: tomorrow, chest: 95, note: "", updatedAt: stamp }] };
+  assert.equal(parseBodyProgress(stored).weighIns[0].date, tomorrow);
+  const merged = parseBodyProgress(mergeBodyProgress(parseBodyProgress(stored), { ...emptyBodyProgress(), weighIns: [weight("old", "2026-09-19", 65)] }));
+  assert.deepEqual(merged.weighIns.map((record) => record.id), ["old", "west"]);
+  const readings = combineWeightReadings([], merged.weighIns);
+  assert.equal(readings.at(-1).date, tomorrow);
+  assert.deepEqual(recentWeightAverages(readings, localDay()).recent, { value: 66, count: 1 });
+});
+test("weight-loss goals are reached and sustained going down, with milestones ordered toward the goal", () => {
+  const lossGoal = { targets: [72, 70, 71], sustainedDays: 3, updatedAt: "2026-09-01T08:00:00.000Z" };
+  const start = [weight("a", "2026-09-01", 73.4), weight("b", "2026-09-02", 73)];
+  assert.deepEqual(weightGoal(combineWeightReadings([], start), lossGoal), { target: 70, loss: true });
+  assert.deepEqual(weightMilestones(combineWeightReadings([], start), lossGoal).map((item) => [item.target, item.firstReached, item.sustained]), [[72, null, null], [71, null, null], [70, null, null]]);
+  const later = combineWeightReadings([], [...start, weight("c", "2026-09-05", 69.8), weight("d", "2026-09-06", 70.4), weight("e", "2026-09-07", 69.9), weight("f", "2026-09-08", 69.6), weight("g", "2026-09-09", 69.5)]);
+  const result = weightMilestones(later, lossGoal);
+  assert.deepEqual(result.map((item) => item.target), [72, 71, 70]);
+  assert.equal(result[2].firstReached, "2026-09-05");
+  assert.equal(weightMilestones(later.slice(0, -1), lossGoal)[2].sustained, null);
+  assert.equal(result[2].sustained, "2026-09-09");
+  assert.equal(result[0].sustained, "2026-09-06");
+  // A cut after a bulk: the reading when the goal was saved sets the direction, not the first ever reading.
+  assert.deepEqual(weightGoal([{ date: "2026-01-01", value: 60 }, ...later], { ...lossGoal, updatedAt: "2026-09-02T08:00:00.000Z" }), { target: 70, loss: true });
+  // Gain goals keep their existing direction and order.
+  assert.deepEqual(weightGoal(combineWeightReadings([], start), goal([75, 74])), { target: 75, loss: false });
+  assert.deepEqual(weightGoal([], goal([75, 74])), { target: 75, loss: false });
 });

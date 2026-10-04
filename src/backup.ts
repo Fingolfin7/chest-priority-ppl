@@ -100,7 +100,7 @@ function normalizeWorkout(value: unknown, position: number): CompletedWorkout {
 
 function csvCell(value: string | number) {
   const text = String(value);
-  const safe = /^[=+\-@]/.test(text) ? `'${text}` : text;
+  const safe = /^'*[=+\-@]/.test(text) ? `'${text}` : text;
   return `"${safe.replaceAll('"', '""')}"`;
 }
 
@@ -160,7 +160,7 @@ export function parseCsvBackup(text: string): ParsedBackup {
   const required = ["exercise", "session_timestamp", "session_id", "set_number", "load", "reps"];
   const columns = Object.fromEntries(CSV_HEADERS.map((name) => [name, header.indexOf(name)]));
   if (required.some((name) => columns[name] < 0)) throw new Error("This is not a Rolling PPL CSV export.");
-  const getRaw = (row: string[], name: string) => columns[name] >= 0 ? (row[columns[name]] ?? "") : "";
+  const getRaw = (row: string[], name: string) => columns[name] >= 0 ? (row[columns[name]] ?? "").replace(/^'(?='*[=+\-@])/, "") : "";
   const get = (row: string[], name: string) => getRaw(row, name).trim();
   const grouped = new Map<string, ExportSession>();
   const csvWorkouts = new Map<string, CsvWorkout>();

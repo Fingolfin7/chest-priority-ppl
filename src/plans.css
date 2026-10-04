@@ -23,7 +23,7 @@
 .plan-exercise-heading { display: flex; gap: 16px; align-items: end; }
 .plan-exercise-heading > label { flex: 1; }
 .plan-reorder { display: flex; gap: 6px; }
-.plan-reorder button { padding: 11px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--ink); cursor: pointer; }
+.plan-reorder button { min-width: 44px; min-height: 44px; padding: 11px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--ink); cursor: pointer; }
 .plan-reorder button:disabled { opacity: .4; cursor: default; }
 .plan-prescription { display: grid; grid-template-columns: .8fr 1fr 1.5fr 1.3fr; gap: 12px; margin-top: 18px; }
 .plan-exercise details { margin-top: 18px; }

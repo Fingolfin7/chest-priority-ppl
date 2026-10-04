@@ -409,6 +409,12 @@ function readFields(doc: Automerge.Doc<SyncData>): Flat {
   return fields;
 }
 
+// Workout type and training snapshot are separate registers. A stale sequence
+// is dropped so the next workout falls back to the current programme order.
+function sequenced(item: { workout: WorkoutKey; training?: WorkoutTraining }) {
+  if (item.training?.sessionKind !== "free" && item.training?.sequence && !item.training.sequence.includes(item.workout)) delete item.training.sequence;
+}
+
 function projected(fields: Flat): SyncSnapshot {
   const entries = Array.from(fields, ([key, value]) => ({ parts: JSON.parse(key) as string[], value }));
   const memberships = new Map<string, string[][]>();
@@ -457,8 +463,10 @@ function projected(fields: Flat): SyncSnapshot {
     };
     const training = get([...prefix, "training"]);
     if (typeof training === "string") workout.training = parseTraining(training);
-    if (workout.training?.sessionKind !== "free" && workout.training?.sequence && !workout.training.sequence.includes(workout.workout)) throw new Error("A synced workout is missing from its training sequence.");
-    if (Date.parse(workout.endedAt) < Date.parse(workout.startedAt)) throw new Error("A synced workout ends before it starts.");
+    // Each field merges independently, so two valid offline edits can combine
+    // into an inconsistent pair. Repair the view instead of stalling sync.
+    sequenced(workout);
+    if (Date.parse(workout.endedAt) < Date.parse(workout.startedAt)) workout.endedAt = workout.startedAt;
     allWorkouts.push(workout);
     if (live(...prefix)) completed.push(workout);
   }
@@ -488,7 +496,7 @@ function projected(fields: Flat): SyncSnapshot {
   if (activeWorkout) {
     const training = get(["active", activeWorkout.id, "training"]);
     if (typeof training === "string") activeWorkout.training = parseTraining(training);
-    if (activeWorkout.training?.sessionKind !== "free" && activeWorkout.training?.sequence && !activeWorkout.training.sequence.includes(activeWorkout.workout)) throw new Error("An active workout is missing from its training sequence.");
+    sequenced(activeWorkout);
   }
   const scope = activeWorkout?.id ?? UNASSIGNED;
   const drafts: DraftMap = Object.fromEntries(ids("draftExercise").filter(([owner, name]) => owner === scope && live("draftExercise", owner, name)).map(([owner, name]) => [name, sets("draft", owner, name)]));

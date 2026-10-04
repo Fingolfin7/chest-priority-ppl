@@ -18,6 +18,9 @@ test('suggested milestones stay between the observed weight and the chosen goal'
   assert.deepEqual(suggestedWeightMilestones(68,70),[69]);
   assert.deepEqual(suggestedWeightMilestones(undefined,70),[]);
   assert.deepEqual(suggestedWeightMilestones(71,70),[]);
+  assert.deepEqual(suggestedWeightMilestones(74.5,70),[71,72,73,74]);
+  assert.deepEqual(suggestedWeightMilestones(72,70),[71]);
+  assert.deepEqual(suggestedWeightMilestones(70,70),[]);
 });
 test('phase insights exclude other phases and require comparable records', () => {
   const phase={id:'phase',startedAt:'2026-09-10T00:00:00Z'};

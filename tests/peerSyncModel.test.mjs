@@ -3,6 +3,8 @@ import test from 'node:test';
 import * as A from '@automerge/automerge';
 import {createSyncDoc,emptySyncSnapshot,listSyncConflicts,migrateExerciseAliases,projectSyncDoc,resolveSyncConflict,updateSyncDoc,validateSyncDoc} from '../src/peerSyncModel.ts';
 import {emptyBodyProgress,mergeBodyProgress} from '../src/bodyProgressModel.ts';
+import {defaultPlanState} from '../src/defaultPlan.ts';
+import {trainingForWorkout} from '../src/planModel.ts';
 const exercise='Barbell bench press';
 const key=(...parts)=>JSON.stringify(parts);
 const merge=(a,b)=>A.merge(A.clone(a),b);
@@ -129,3 +131,37 @@ test('grouped legacy workout does not duplicate original lift',()=>{const w=work
 test('remote validation rejects unknown fields, credentials, mutable text and invalid hidden conflicts',()=>{const base=createSyncDoc(snapshot(workout()));const unknown=A.change(A.clone(base),d=>{d.values[key('credentials','token')]=new A.ImmutableString('"secret"');});assert.throws(()=>validateSyncDoc(unknown),/unsupported field/);const credential=A.change(A.clone(base),d=>{d.values[key('workout','workout-1','sync')]=new A.ImmutableString(JSON.stringify(JSON.stringify({status:'synced',token:'secret'})));});assert.throws(()=>validateSyncDoc(credential),/credentials/);const mutable=A.change(A.clone(base),d=>{d.values[key('state','next')]='"pull"';});assert.throws(()=>validateSyncDoc(mutable),/non-scalar/);const setId=projectSyncDoc(base).completed[0].exercises[0].sets[0].id,invalid=A.change(A.clone(base),d=>{d.values[key('set','workout','workout-1',exercise,setId,'reps')]=new A.ImmutableString('"-3"');}),valid=edit(A.clone(base),s=>{s.completed[0].exercises[0].sets[0].reps='12';});assert.throws(()=>validateSyncDoc(merge(invalid,valid)),/completed set reps/);});
 
 test('legacy lift aliases survive corrections after meeting a lift-only browser',()=>{const saved=workout('legacy-2026-09-01:push');saved.sync={status:'legacy'};const a=snapshot(saved);a.history[exercise][0].id='old-lift-session';const b={...emptySyncSnapshot(),history:structuredClone(a.history)};let doc=merge(createSyncDoc(a),createSyncDoc(b));assert.equal(projectSyncDoc(doc).history[exercise].length,1);doc=edit(doc,s=>{s.completed[0].exercises[0].sets[0].reps='12';});assert.equal(projectSyncDoc(doc).history[exercise].length,1);assert.equal(projectSyncDoc(doc).history[exercise][0].sets[0].reps,'12');doc=edit(doc,s=>{s.completed=[];s.history={};});assert.deepEqual(projectSyncDoc(doc).history,{});});
+test('concurrent valid start/end and workout/sequence edits merge into a repaired, still-syncable snapshot',()=>{
+  const base=createSyncDoc(snapshot(workout()));
+  const phone=edit(A.clone(base),s=>{s.completed[0].startedAt='2026-09-01T05:50:00.000Z';});
+  const laptop=edit(A.clone(base),s=>{s.completed[0].endedAt='2026-09-01T05:30:00.000Z';});
+  // Mirror PeerSyncManager.receive: every received document must validate.
+  const docs=[phone,laptop],states=[A.initSyncState(),A.initSyncState()];
+  for(let turn=0,quiet=0;quiet<2;turn++){const from=turn%2,to=1-from,[state,message]=A.generateSyncMessage(docs[from],states[from]);states[from]=state;if(!message){quiet++;continue;}quiet=0;const [received,next]=A.receiveSyncMessage(A.clone(docs[to]),states[to],message);validateSyncDoc(received);docs[to]=migrateExerciseAliases(received);states[to]=next;}
+  assert.deepEqual(A.getHeads(docs[0]),A.getHeads(docs[1]));
+  const doc=docs[0];
+  const p=projectSyncDoc(doc);
+  assert.equal(p.completed[0].startedAt,'2026-09-01T05:50:00.000Z');
+  assert.ok(Date.parse(p.completed[0].endedAt)>=Date.parse(p.completed[0].startedAt));
+  assert.equal(p.history[exercise][0].savedAt,p.completed[0].endedAt);
+  assert.deepEqual(projectSyncDoc(A.load(A.save(doc))),p);
+  const fixed=edit(doc,s=>{s.completed[0].endedAt='2026-09-01T06:40:00.000Z';});
+  assert.equal(projectSyncDoc(fixed).completed[0].endedAt,'2026-09-01T06:40:00.000Z');
+  const phase=defaultPlanState().phases[0],tagged=workout();tagged.training=trainingForWorkout(phase,'push');
+  const planned=createSyncDoc(snapshot(tagged));
+  const retyped=edit(A.clone(planned),s=>{s.completed[0].workout='legs';});
+  const resequenced=edit(A.clone(planned),s=>{s.completed[0].training.sequence=['push','pull'];});
+  const repaired=projectSyncDoc(merge(retyped,resequenced)).completed[0];
+  assert.equal(repaired.workout,'legs');
+  assert.equal(repaired.training.sequence,undefined);
+  assert.equal(repaired.training.phaseId,phase.id);
+});
+
+test('deleting a completed workout alone also removes its derived lift history on every peer',()=>{
+  const base=createSyncDoc(snapshot(workout(),workout('workout-2','2026-09-03')));
+  const deleted=edit(A.clone(base),s=>{s.completed=s.completed.filter((item)=>item.id!=='workout-1');});
+  const merged=merge(base,deleted);
+  assert.deepEqual(projectSyncDoc(merged).completed.map((item)=>item.id),['workout-2']);
+  assert.deepEqual(Object.values(projectSyncDoc(merged).history).flat().map((item)=>item.id),['workout-2:'+exercise]);
+  assert.doesNotThrow(()=>validateSyncDoc(merged));
+});

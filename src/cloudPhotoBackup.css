@@ -10,6 +10,8 @@
 .cloud-photo-backup .cloud-photo-privacy { font-size:.72rem; }
 .cloud-photo-backup .cloud-photo-counts { color:var(--ink); font-weight:650; }
 .photo-card-details .photo-cloud-status { white-space:normal; line-height:1.4; overflow-wrap:anywhere; }
-.photo-confirm-dialog .photo-cloud-delete-choice { padding:.7rem; display:flex; align-items:flex-start; gap:.65rem; background:var(--soft-2); border-radius:7px; line-height:1.5; }
+.photo-confirm-dialog .photo-cloud-delete-choice { min-height:44px; padding:.7rem; display:flex; align-items:flex-start; gap:.65rem; background:var(--soft-2); border-radius:7px; line-height:1.5; }
 .photo-cloud-delete-choice input { width:20px; min-height:20px; height:20px; flex-shrink:0; margin:.05rem 0 0; }
 @media(max-width:600px) { .cloud-photo-actions>button { flex:1 1 auto; } .cloud-photo-heading { flex-direction:column; } .cloud-photo-existing { justify-items:stretch; } }
+.photo-storage-content section.cloud-photo-backup { padding:.8rem 0 0; background:none; border:0; border-top:1px solid var(--line); border-radius:0; box-shadow:none; }
+.photo-storage-content .cloud-photo-heading h3 { font-size:.9rem; }

@@ -30,6 +30,9 @@
   --demo-caption-ink: #3f4a40;
   --action-ink: #ffffff;
   --sans: system-ui, -apple-system, "Segoe UI", sans-serif;
+  /* The legacy stylesheet's monospace labels are retired; numbers stay tabular. */
+  --mono: var(--sans);
+  --danger: #a3362b;
 }
 
 :root[data-theme="dark"] {
@@ -64,6 +67,7 @@
   --demo-caption: #202a2e;
   --demo-caption-ink: #d7e4e1;
   --action-ink: #132b25;
+  --danger: #f0a196;
 }
 
 html { scroll-behavior: smooth; }
@@ -80,8 +84,7 @@ main, footer { width: min(1040px, calc(100% - 32px)); }
   z-index: 30;
   padding: 8px max(16px, calc((100vw - 1120px) / 2));
   grid-template-columns: minmax(150px, 1fr) auto minmax(100px, 1fr);
-  background: color-mix(in srgb, var(--bg) 94%, transparent);
-  backdrop-filter: blur(14px);
+  background: var(--bg);
 }
 
 /* Keep the compact shell above the legacy mobile grid rules. */
@@ -100,8 +103,6 @@ main, footer { width: min(1040px, calc(100% - 32px)); }
 .training-rail .rail-main { flex-direction: row; align-items: center; }
 .training-rail .rail-start, .training-rail .rail-live { justify-items: end; }
 .training-rail .rail-main .primary-action { width: auto; text-transform: none; }
-.workout .short-session { background: transparent; border: 0; padding: 0 2px 6px; }
-.storage-note { font-size: .68rem; margin-block: 5px; }
 .progress-support .milestones { margin-bottom: 12px; }
 @media (max-width: 850px) { .app-header .header-actions { grid-column: 2; grid-row: 1; } }
 @media (max-width: 720px) {
@@ -185,8 +186,9 @@ main, footer { width: min(1040px, calc(100% - 32px)); }
 .utility-menu-panel > .theme-menu-button,
 .utility-menu-panel > .export-menu { width: 100%; min-height: 42px; }
 .utility-menu-panel > .export-menu { position: relative; }
+.utility-menu-panel > .export-menu[open] { grid-column: 1 / -1; }
 .utility-menu-panel .export-menu > summary { min-height: 42px; justify-content: center; text-transform: none; font: 650 .8rem/1.25 var(--sans); }
-.utility-menu-panel .export-panel { max-height: calc(100svh - 130px); right: -1px; top: calc(100% + 5px); }
+.utility-menu-panel .export-panel { position: static; width: auto; max-width: none; max-height: none; margin: 8px 0 0; overflow: visible; box-shadow: none; }
 .theme-menu-button {
   min-height: 40px;
   padding: 0 10px;
@@ -199,6 +201,17 @@ main, footer { width: min(1040px, calc(100% - 32px)); }
   font-weight: 620;
 }
 .utility-button, .install-button { font: 650 .8rem/1 var(--sans); text-transform: none; }
+.eyebrow, .primary-action, .secondary-action, .text-action, .modal-close, .lightbox-close, .pending-sync article > button, .pending-sync h3 span,
+.finish-fields label, .autumn-panel label, .connection-advanced label, .connection-advanced summary, .finish-summary span, .frequency-card > span, .frequency-card > div span,
+.milestones article > span, .lift-grid summary small, .export-panel > span, .export-menu > summary, .workout-header > span, .set-entry label, .next-step span,
+.previous-session span, .prescription small, .priority-badge, .optional-divider span, .sequence-dots span, .next-picker, .next-picker button, .set-number, .history summary {
+  letter-spacing: normal;
+  text-transform: none;
+}
+.primary-action, .secondary-action { font-weight: 650; }
+.pending-sync pre { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; }
+.danger-action { color: var(--danger); }
+.past-session .danger-action { min-height: 44px; margin-top: 6px; }
 .install-button { color: var(--action-ink); background: var(--push); border-color: var(--push); }
 
 .training-rail {
@@ -222,11 +235,30 @@ main, footer { width: min(1040px, calc(100% - 32px)); }
 .sequence-dots span { padding: 5px 7px; border-radius: 5px; font: 600 .69rem/1 var(--sans); text-transform: none; }
 .sequence-dots span.current { color: var(--action-ink); background: var(--rail-accent); }
 .next-picker { font: 600 .72rem/1 var(--sans); }
-.next-picker button { min-height: 38px; padding: 8px; font: 600 .72rem/1 var(--sans); text-transform: capitalize; }
-.sync-receipt { padding: 9px 12px; border-top: 1px solid var(--line); border-radius: 0 0 10px 10px; }
-.sync-receipt strong { font-size: .78rem; }
+.next-picker summary { min-height: 44px; display: inline-flex; align-items: center; padding-inline: 6px; }
+.next-picker button { min-width: 64px; min-height: 44px; padding: 8px 10px; font: 600 .75rem/1 var(--sans); }
+.workout-summary { --summary-accent: var(--push); margin: 16px 0 8px; padding: 14px 16px; display: grid; gap: 12px; background: var(--surface); border: 1px solid var(--line); border-left: 3px solid var(--summary-accent); border-radius: 10px; }
+.workout-summary.pull { --summary-accent: var(--pull); }
+.summary-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.summary-heading .eyebrow { color: var(--muted); font-size: .75rem; }
+.summary-heading h2 { margin: 2px 0 0; font-size: 1.25rem; line-height: 1.2; letter-spacing: -.02em; }
+.summary-heading .text-action { min-height: 44px; flex-shrink: 0; }
+.summary-stats { margin: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.summary-stats > div { min-width: 0; padding: 9px 10px; background: var(--soft-2); border-radius: 8px; }
+.summary-stats dt { color: var(--muted); font-size: .74rem; }
+.summary-stats dd { margin: 3px 0 0; overflow: hidden; font-size: 1.15rem; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
+.summary-records { margin: 0; padding: 0; display: grid; gap: 6px; list-style: none; }
+.summary-records li { padding: 8px 10px; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: baseline; gap: 10px; color: var(--push-soft-ink); background: var(--push-soft); border-radius: 8px; font-size: .82rem; }
+.summary-records span { font-size: .74rem; font-weight: 700; }
+.summary-records strong { overflow: hidden; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.summary-records b { white-space: nowrap; }
+.summary-sync { min-height: 44px; padding-top: 10px; display: flex; align-items: center; justify-content: space-between; gap: 10px; color: var(--muted); border-top: 1px solid var(--line); font-size: .82rem; }
+.summary-sync p { margin: 0; }
+.summary-sync.synced b { color: var(--push); }
+.summary-sync.error { color: var(--danger); }
+.summary-sync button { min-height: 44px; flex-shrink: 0; }
 .training-phase-note { min-height: 34px; margin: 4px 0 8px; font-size: .75rem; }
-.training-phase-note .text-action { min-height: 36px; }
+.training-phase-note .text-action { min-height: 44px; }
 .training-phase-note.has-free-start { flex-wrap: nowrap; gap: 10px; }
 .training-phase-note.has-free-start > span { min-width: 0; }
 .training-phase-note .free-session-start { flex-shrink: 0; font: 600 .75rem/1.3 var(--sans); text-transform: none; }
@@ -239,10 +271,8 @@ main, footer { width: min(1040px, calc(100% - 32px)); }
 .workout-header h2 { font-size: 1.2rem; letter-spacing: -.02em; }
 .workout-header p { margin-top: 3px; font-size: .78rem; }
 .workout-header > span { font: 600 .7rem/1.3 var(--sans); text-transform: none; }
-.short-session { margin: 0 0 9px; padding: 9px 11px; border-radius: 7px; font-size: .76rem; }
 .optional-divider { min-height: 29px; padding: 3px 4px; }
 .optional-divider span { font: 650 .74rem/1 var(--sans); text-transform: none; }
-.optional-divider p { font-size: .71rem; }
 .exercise-list { display: grid; gap: 6px; }
 .exercise-row {
   min-height: 0;
@@ -286,7 +316,7 @@ main, footer { width: min(1040px, calc(100% - 32px)); }
 .checklist-copy small { overflow: hidden; color: var(--muted); font-size: .72rem; line-height: 1.25; text-overflow: ellipsis; white-space: nowrap; }
 .checklist-target { min-width: 0; display: grid; gap: 2px; text-align: right; }
 .checklist-target small { color: var(--muted); font-size: .64rem; }
-.checklist-target strong { color: var(--target-label); font-size: .72rem; font-weight: 650; white-space: nowrap; }
+.checklist-target strong { color: var(--target-label); font-size: .82rem; font-weight: 700; white-space: nowrap; }
 .exercise-checklist-row > .priority-badge { padding: 5px 6px; font: 600 .63rem/1 var(--sans); letter-spacing: 0; text-transform: none; }
 .priority-badge.must { color: var(--action-ink); background: var(--workout-accent); }
 .priority-badge.optional { color: var(--muted); background: var(--soft-2); border-color: var(--line); }
@@ -303,16 +333,12 @@ main, footer { width: min(1040px, calc(100% - 32px)); }
 .image-button img { object-fit: contain; filter: grayscale(1) contrast(.92); }
 .image-button:hover img { transform: none; }
 .demo-strip figcaption { height: 30px; padding: 7px 9px; font: 600 .68rem/1 var(--sans); }
-.image-source { font: 500 .61rem/1 var(--sans); }
+.image-source { min-height: 30px; display: inline-flex; align-items: center; padding: 0 8px; font: 500 .7rem/1 var(--sans); }
 .exercise-info { align-self: stretch; min-width: 0; }
 .exercise-choice { margin: 0 0 12px; }
 .exercise-choice > span { font-size: .75rem; }
 .exercise-choice > div { gap: 4px; }
 .exercise-choice button { min-height: 42px; font-size: .77rem; }
-.exercise-title { grid-template-columns: 28px minmax(0, 1fr) auto; align-items: center; gap: 8px; }
-.exercise-title > span { width: 27px; height: 27px; font: 650 .72rem/1 var(--sans); }
-.exercise-title h3 { margin: 0; font-size: 1.05rem; letter-spacing: -.015em; }
-.exercise-title .priority-badge { font: 600 .65rem/1 var(--sans); letter-spacing: 0; text-transform: none; }
 .prescription { margin: 10px 0 6px; gap: 6px; }
 .prescription strong { font-size: 1.15rem; letter-spacing: 0; }
 .prescription small { font: 500 .72rem/1 var(--sans); text-transform: none; }
@@ -518,9 +544,9 @@ footer { padding: 8px 0 22px; color: var(--muted); font-size: .72rem; }
 @media (max-width: 720px) {
   body { padding-bottom: calc(68px + env(safe-area-inset-bottom)); }
   main, footer { width: calc(100% - 24px); }
-  .app-header { min-height: 58px; padding: 7px 12px; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; backdrop-filter: none; }
+  .app-header { min-height: 58px; padding: 7px 12px; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
   .app-brand h1 { font-size: 1rem; }
-  .app-brand p { font-size: .66rem; }
+  .app-brand p { font-size: .7rem; }
   .primary-nav {
     height: calc(62px + env(safe-area-inset-bottom));
     padding: 5px 7px calc(5px + env(safe-area-inset-bottom));
@@ -542,7 +568,7 @@ footer { padding: 8px 0 22px; color: var(--muted); font-size: .72rem; }
     flex-direction: column;
     gap: 2px;
     border-radius: 7px;
-    font-size: .65rem;
+    font-size: .7rem;
     line-height: 1.1;
   }
   .primary-nav button svg { width: 19px; height: 19px; display: block; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
@@ -552,57 +578,55 @@ footer { padding: 8px 0 22px; color: var(--muted); font-size: .72rem; }
   .utility-menu > summary { min-width: 50px; min-height: 40px; padding-inline: 9px; }
   .utility-menu-panel { top: calc(100% + 6px); }
   .training-rail { margin: 10px 0 6px; }
+  .workout-summary { margin-top: 10px; padding: 12px; }
+  .summary-heading h2 { font-size: 1.1rem; }
+  .summary-stats dd { font-size: 1rem; }
   .rail-main { padding: 10px 11px 10px 13px; }
-  .rail-copy .eyebrow { font-size: .68rem; }
+  .rail-copy .eyebrow { font-size: .72rem; }
   .rail-copy h2 { font-size: 1.2rem; }
   .rail-copy p { font-size: .68rem; }
   .rail-start, .rail-live { justify-items: end; }
   .rail-main .primary-action { min-width: 0; min-height: 40px; padding-inline: 10px; font-size: .75rem; }
-  .sequence-dots span { padding: 4px 5px; font-size: .62rem; }
-  .next-picker { font-size: .67rem; }
-  .sync-receipt { padding: 8px 10px; }
+  .sequence-dots span { padding: 4px 5px; font-size: .68rem; }
+  .next-picker { font-size: .72rem; }
   .training-phase-note { align-items: center; font-size: .68rem; }
-  .training-phase-note .text-action { min-height: 34px; padding-inline: 6px; font-size: .7rem; }
+  .training-phase-note .text-action { min-height: 44px; padding-inline: 6px; font-size: .74rem; }
   .train-workout-tabs button { min-height: 40px; font-size: .74rem; }
-  .train-workout-tabs button small { font-size: .58rem; }
+  .train-workout-tabs button small { font-size: .66rem; }
   .workout-header { gap: 8px; }
   .workout-header h2 { font-size: 1.05rem; }
-  .workout-header p { max-width: 230px; font-size: .69rem; }
-  .workout-header > span { font-size: .63rem; }
-  .short-session { padding: 8px 9px; font-size: .7rem; }
+  .workout-header p { max-width: 230px; font-size: .74rem; }
+  .workout-header > span { font-size: .7rem; }
   .optional-divider { flex-wrap: wrap; gap: 4px 7px; }
-  .optional-divider p { flex: 1 1 100%; padding-left: 1px; font-size: .66rem; }
   .exercise-list { gap: 5px; }
   .exercise-checklist-row { min-height: 66px; padding: 8px; grid-template-columns: 27px minmax(0, 1fr) auto 15px; gap: 7px; }
   .exercise-checklist-row > .priority-badge { display: none; }
   .checklist-mark { width: 25px; height: 25px; font-size: .7rem; }
-  .checklist-copy strong { font-size: .8rem; }
-  .checklist-copy small { font-size: .65rem; }
-  .checklist-target { max-width: 105px; }
-  .checklist-target small { font-size: .6rem; }
-  .checklist-target strong { overflow: hidden; font-size: .65rem; text-overflow: ellipsis; }
+  .checklist-copy strong { font-size: .86rem; }
+  .checklist-copy small { font-size: .72rem; }
+  .checklist-target { max-width: 120px; }
+  .checklist-target small { font-size: .66rem; }
+  .checklist-target strong { overflow: hidden; font-size: .78rem; text-overflow: ellipsis; }
   .exercise-row.expanded .exercise-checklist-row { min-height: 57px; }
   .exercise-detail { padding: 9px; gap: 8px; }
   .demo-grid { grid-template-columns: minmax(0, 1fr); gap: 6px; }
   .demo-grid.has-options { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .poses { height: 144px; grid-template-columns: minmax(0, 1fr) 14px minmax(0, 1fr); }
-  .demo-strip figcaption { height: 27px; padding: 6px 7px; font-size: .62rem; }
-  .exercise-title h3 { font-size: .95rem; }
-  .exercise-title .priority-badge { font-size: .6rem; }
+  .demo-strip figcaption { height: 30px; padding: 6px 7px; font-size: .7rem; }
   .prescription strong { font-size: 1.05rem; }
-  .cue { font-size: .76rem; }
+  .cue { font-size: .82rem; }
   .exercise-meta { gap: 4px; }
-  .exercise-meta span { padding: 4px 6px; font-size: .63rem; }
+  .exercise-meta span { padding: 4px 6px; font-size: .7rem; }
   .set-tracker { margin-top: 9px; padding-top: 9px; }
   .tracker-heading { gap: 6px; }
   .tracker-heading h4 { font-size: .84rem; }
-  .tracker-heading p { font-size: .65rem; }
+  .tracker-heading p { font-size: .72rem; }
   .previous-session { max-width: 52%; }
-  .previous-session strong { font-size: .68rem; }
+  .previous-session strong { font-size: .74rem; }
   .set-entry { grid-template-columns: 38px minmax(0, 1fr) minmax(76px, .82fr); gap: 6px; }
-  .set-number { font-size: .69rem; }
-  .set-entry label { font-size: .68rem; }
-  .set-entry label em { font-size: .67rem; }
+  .set-number { font-size: .74rem; }
+  .set-entry label { font-size: .72rem; }
+  .set-entry label em { font-size: .74rem; }
   .set-entry input { height: 53px; padding-inline: 8px; font-size: 1.12rem; }
   .set-entry input::placeholder { font-size: .8rem; }
   .progress-heading { margin-top: 12px; }

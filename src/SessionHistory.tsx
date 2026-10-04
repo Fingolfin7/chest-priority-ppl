@@ -35,8 +35,8 @@ function SessionEditor({ original, definitions, onSave, onCancel }: {
     {draft.exercises.map((exercise, index) => <fieldset key={exercise.name}><legend>{exercise.name}</legend>
       {exercise.sets.map((set, setIndex) => <div className="session-set" key={set.id ?? setIndex}>
         <span>Set {setIndex + 1}</span>
-        <label>Load<input aria-label={`${exercise.name} set ${setIndex + 1} load`} placeholder="kg / BW" value={set.load} onChange={(event) => updateExercise(index, exercise.sets.map((entry, i) => i === setIndex ? { ...entry, load: event.target.value } : entry))} /></label>
-        <label>Reps<input aria-label={`${exercise.name} set ${setIndex + 1} reps`} type="number" min="1" step="1" required value={set.reps} onChange={(event) => updateExercise(index, exercise.sets.map((entry, i) => i === setIndex ? { ...entry, reps: event.target.value } : entry))} /></label>
+        <label>Load<input aria-label={`${exercise.name} set ${setIndex + 1} load`} inputMode="decimal" placeholder="kg" value={set.load} onChange={(event) => updateExercise(index, exercise.sets.map((entry, i) => i === setIndex ? { ...entry, load: event.target.value } : entry))} /></label>
+        <label>Reps<input aria-label={`${exercise.name} set ${setIndex + 1} reps`} type="number" inputMode="numeric" min="1" step="1" required value={set.reps} onChange={(event) => updateExercise(index, exercise.sets.map((entry, i) => i === setIndex ? { ...entry, reps: event.target.value } : entry))} /></label>
         <button type="button" className="text-action" aria-label={`Remove ${exercise.name} set ${setIndex + 1}`} onClick={() => updateExercise(index, exercise.sets.filter((_, i) => i !== setIndex))}>Remove</button>
       </div>)}
       <button type="button" className="secondary-action" onClick={() => updateExercise(index, [...exercise.sets, { id: crypto.randomUUID(), load: "", reps: "" }])}>Add set</button>
@@ -52,9 +52,9 @@ function SessionEditor({ original, definitions, onSave, onCancel }: {
   </form>;
 }
 
-export function SessionHistory({ sessions, definitions, onSave }: {
+export function SessionHistory({ sessions, definitions, onSave, onDelete }: {
   sessions: CompletedWorkout[]; definitions: Record<string, ExerciseDefinition[]>;
-  onSave: (original: CompletedWorkout, updated: CompletedWorkout) => string;
+  onSave: (original: CompletedWorkout, updated: CompletedWorkout) => string; onDelete: (session: CompletedWorkout) => string;
 }) {
   const [editing, setEditing] = useState<CompletedWorkout | null>(null);
   const [limit, setLimit] = useState(10);
@@ -67,7 +67,10 @@ export function SessionHistory({ sessions, definitions, onSave }: {
       return error;
     }} /> : <>
       {!sessions.length && <p>Completed workouts will appear here.</p>}
-      {sessions.slice(0, limit).map((session) => <article className="past-session" key={session.id}><div className="past-session-heading"><div><h3>{workoutLabel(session.workout, session.training)} · {new Date(session.startedAt).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" })}</h3><p>{workoutDurationMinutes(session)} min{session.bodyweight ? ` · ${session.bodyweight} kg bodyweight` : ""}{session.training ? ` · ${session.training.programName ? `${session.training.programName} / ` : ""}${session.training.phaseName}` : ""}</p></div><button className="secondary-action" type="button" disabled={session.sync.status === "syncing"} onClick={() => { setEditing(session); setMessage(""); }}>Edit session</button></div><details><summary>Session details</summary><ul>{session.exercises.map((exercise) => <li key={exercise.name}><strong>{exercise.name}</strong>: {formatExerciseSets(exercise)}</li>)}</ul>{session.note && <p className="session-note">{session.note}</p>}</details></article>)}
+      {sessions.slice(0, limit).map((session) => <article className="past-session" key={session.id}><div className="past-session-heading"><div><h3>{workoutLabel(session.workout, session.training)} · {new Date(session.startedAt).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" })}</h3><p>{workoutDurationMinutes(session)} min · {session.exercises.reduce((sum, exercise) => sum + exercise.sets.length, 0)} sets{session.bodyweight ? ` · ${session.bodyweight} kg bodyweight` : ""}{session.training ? ` · ${session.training.programName ? `${session.training.programName} / ` : ""}${session.training.phaseName}` : ""}</p></div><button className="secondary-action" type="button" disabled={session.sync.status === "syncing"} onClick={() => { setEditing(session); setMessage(""); }}>Edit session</button></div><details><summary>Session details</summary><ul>{session.exercises.map((exercise) => <li key={exercise.name}><strong>{exercise.name}</strong>: {formatExerciseSets(exercise)}</li>)}</ul>{session.note && <p className="session-note">{session.note}</p>}<button className="text-action danger-action" type="button" disabled={session.sync.status === "syncing"} onClick={() => {
+        if (!window.confirm(`Delete this ${workoutLabel(session.workout, session.training)} session from ${new Date(session.startedAt).toLocaleDateString()}? Its sets are removed from lift history on every paired device.${session.sync.status === "synced" ? " The Autumn record is not deleted." : ""}`)) return;
+        setMessage(onDelete(session) || "Session deleted.");
+      }}>Delete session</button></details></article>)}
       {sessions.length > limit && <button type="button" className="secondary-action" onClick={() => setLimit(limit + 10)}>Show more sessions</button>}
     </>}
   </section>;

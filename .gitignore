@@ -32,3 +32,4 @@ yarn-error.log*
 /dist/
 /outputs/
 /work/
+/.codex-remote-attachments/

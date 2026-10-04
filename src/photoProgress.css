@@ -5,12 +5,12 @@
 .photo-progress-eyebrow { margin:0 0 .4rem; color:var(--push); font:800 .62rem/1 var(--mono); letter-spacing:.04em; text-transform:uppercase; }
 .photo-progress label { display:grid; gap:.4rem; min-width:0; color:var(--ink); font-size:.78rem; font-weight:650; }
 .photo-progress input,.photo-progress select { width:100%; min-width:0; min-height:44px; padding:.62rem .7rem; color:var(--ink); background:var(--input); border:1px solid var(--input-line); border-radius:7px; font:400 .88rem/1.3 var(--sans); }
-.photo-progress button { min-height:42px; padding:.6rem .8rem; color:var(--ink); background:var(--soft); border:1px solid var(--line); border-radius:7px; cursor:pointer; font:650 .8rem/1.3 var(--sans); }
+.photo-progress button { min-height:44px; padding:.6rem .8rem; color:var(--ink); background:var(--soft); border:1px solid var(--line); border-radius:7px; cursor:pointer; font:650 .8rem/1.3 var(--sans); }
 .photo-progress button:disabled { cursor:default; opacity:.5; }
 .photo-progress button:focus-visible,.photo-progress input:focus-visible,.photo-progress select:focus-visible,.photo-file-button:focus-within { outline:3px solid color-mix(in srgb,var(--push) 45%,transparent); outline-offset:2px; }
 .photo-progress .primary-action { color:var(--action-ink); background:var(--push); border-color:var(--push); }
 .photo-progress .danger-action { color:var(--pull-soft-ink); background:var(--pull-soft); border-color:var(--pull); }
-.photo-progress .text-action { min-height:36px; padding:.42rem .65rem; color:var(--muted); background:transparent; border-color:transparent; }
+.photo-progress .text-action { min-height:44px; padding:.42rem .65rem; color:var(--muted); background:transparent; border-color:transparent; }
 .photo-progress-error,.photo-progress-status { margin:0; padding:.8rem 1rem; border-radius:8px; font-size:.82rem; line-height:1.5; overflow-wrap:anywhere; }
 .photo-progress-error { color:var(--pull-soft-ink); background:var(--pull-soft); }
 .photo-progress-status { color:var(--legs-soft-ink); background:var(--legs-soft); }
@@ -26,7 +26,7 @@
 .photo-add-card>small { font-size:.72rem; }
 .photo-add-fields,.photo-compare-selectors { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:.75rem; }
 .photo-add-actions,.photo-backup-actions { display:flex; align-items:center; flex-wrap:wrap; gap:.55rem; }
-.photo-file-button { position:relative; display:inline-flex !important; min-height:42px; align-items:center; justify-content:center; padding:.58rem .8rem; color:var(--ink) !important; background:var(--soft); border:1px solid var(--line); border-radius:7px; cursor:pointer; font-size:.8rem !important; font-weight:650 !important; }
+.photo-file-button { position:relative; display:inline-flex !important; min-height:44px; align-items:center; justify-content:center; padding:.58rem .8rem; color:var(--ink) !important; background:var(--soft); border:1px solid var(--line); border-radius:7px; cursor:pointer; font-size:.8rem !important; font-weight:650 !important; }
 .photo-file-button input { position:absolute; inset:0; width:100%; height:100%; min-height:0; opacity:0; cursor:pointer; }
 .photo-camera-card { display:grid; justify-items:center; gap:.8rem; }
 .photo-camera-heading { width:min(100%,46rem); display:flex; align-items:center; justify-content:space-between; gap:.8rem; }
@@ -86,7 +86,8 @@
 .photo-storage-details>summary::after { content:"+"; color:var(--muted); font-size:1.15rem; font-weight:500; }
 .photo-storage-details[open]>summary::after { content:"−"; }
 .photo-storage-details>summary:focus-visible { outline:3px solid color-mix(in srgb,var(--push) 45%,transparent); outline-offset:2px; border-radius:7px; }
-.photo-storage-content { padding:.1rem 1rem 1rem; display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:1.3rem; }
+.photo-storage-content { padding:.1rem 1rem 1rem; display:grid; grid-template-columns:minmax(0,1fr); gap:1rem; }
+.photo-backup-dates .photo-backup-view { grid-column:1/-1; }
 .photo-storage-content section { min-width:0; padding-top:.8rem; border-top:1px solid var(--line); }
 .photo-storage-content h3 { margin:0; font-size:.9rem; }
 .photo-storage-content p { margin:.4rem 0; color:var(--muted); font-size:.76rem; line-height:1.5; }
@@ -94,7 +95,7 @@
 .photo-storage-content .photo-storage-protected { color:var(--legs-soft-ink); }
 .photo-backup-dates { margin:.75rem 0; display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:.65rem; }
 .photo-backup-dates label { font-size:.72rem; }
-.photo-backup-dates input { min-height:40px; font-size:.8rem; }
+.photo-backup-dates input,.photo-backup-dates select { min-height:44px; font-size:.8rem; }
 .photo-storage-content .photo-backup-date-error { margin:-.4rem 0 .5rem; color:var(--pull-soft-ink); font-size:.72rem; }
 .photo-backup-actions { justify-content:flex-start; margin:.65rem 0 0; }
 .photo-backup-actions>* { flex:0 1 auto; }

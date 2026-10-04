@@ -37,9 +37,14 @@ function readingNumber(value: unknown, label: string, maximum: number): number {
   if (typeof value !== "number" || !Number.isFinite(value) || value <= 0 || value > maximum) throw new Error(`${label} must be greater than 0 and at most ${maximum}.`);
   return value;
 }
-function baseRecord(value: unknown, today: string) {
+// Only new or edited entries must be on or before today. Stored, merged, synced
+// and restored records accept any calendar day: clocks and time zones differ.
+export function checkEntryDate(date: unknown, today = localDay()): void {
+  if (!validDay(date) || date > today) throw new Error("Choose a valid date on or before today.");
+}
+function baseRecord(value: unknown) {
   const record = object(value);
-  if (!validDay(record.date) || record.date > today) throw new Error("Choose a valid date on or before today.");
+  if (!validDay(record.date)) throw new Error("Choose a valid date.");
   if (typeof record.note !== "string" || record.note.length > 1000) throw new Error("Keep the note under 1,000 characters.");
   return { id: identifier(record.id), date: record.date, note: record.note.trim(), updatedAt: timestamp(record.updatedAt) };
 }
@@ -51,12 +56,12 @@ function unique<T extends { id: string }>(values: T[]): T[] {
   if (new Set(values.map((value) => value.id)).size !== values.length) throw new Error("Duplicate body progress record IDs.");
   return values;
 }
-export function parseBodyProgress(value: unknown, today = localDay()): BodyProgressData {
+export function parseBodyProgress(value: unknown): BodyProgressData {
   const data = object(value);
   if (data.schemaVersion !== 1) throw new Error("Unsupported body progress backup version.");
-  const weighIns = unique(list(data.weighIns).map((value) => ({ ...baseRecord(value, today), kg: readingNumber(object(value).kg, "Weight (kg)", 500) })));
+  const weighIns = unique(list(data.weighIns).map((value) => ({ ...baseRecord(value), kg: readingNumber(object(value).kg, "Weight (kg)", 500) })));
   const measurements = unique(list(data.measurements).map((value) => {
-    const record: BodyMeasurement = baseRecord(value, today);
+    const record: BodyMeasurement = baseRecord(value);
     for (const key of MEASUREMENT_KEYS) if (object(value)[key] !== undefined) record[key] = readingNumber(object(value)[key], `${key} (cm)`, 300);
     if (!MEASUREMENT_KEYS.some((key) => record[key] !== undefined)) throw new Error("Enter at least one tape measurement.");
     return record;
@@ -102,13 +107,25 @@ export function recentWeightAverages(readings: WeightReading[], today = localDay
     }).map((reading) => reading.value);
     return { count: values.length, value: values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null };
   };
-  return { recent: average(end - 6, end), previous: average(end - 13, end - 7) };
+  // A slightly future-dated reading (another clock or time zone) counts as recent.
+  return { recent: average(end - 6, Infinity), previous: average(end - 13, end - 7) };
+}
+// Direction comes from the reading when the goal was last saved (else the first
+// reading): the final goal is the target farthest from it. No readings: gain.
+export function weightGoal(readings: WeightReading[], goal: WeightGoal): { target: number | undefined; loss: boolean } {
+  const ordered = [...readings].sort((a, b) => a.date.localeCompare(b.date)), day = localDay(new Date(goal.updatedAt));
+  const start = (ordered.filter((reading) => reading.date <= day).at(-1) ?? ordered[0])?.value;
+  if (!goal.targets.length) return { target: undefined, loss: false };
+  if (start === undefined) return { target: Math.max(...goal.targets), loss: false };
+  const target = goal.targets.reduce((best, value) => Math.abs(value - start) > Math.abs(best - start) || Math.abs(value - start) === Math.abs(best - start) && value > best ? value : best);
+  return { target, loss: target < start };
 }
 export function weightMilestones(readings: WeightReading[], goal: WeightGoal) {
   // Callers normally use combineWeightReadings; defensively count each day once.
   const ordered = [...new Map(readings.map((reading) => [reading.date, reading])).values()].sort((a, b) => a.date.localeCompare(b.date));
-  const minimum = goal.minimumReadings ?? 3;
-  return goal.targets.map((target) => {
+  const minimum = goal.minimumReadings ?? 3, { loss } = weightGoal(ordered, goal);
+  const reaches = (value: number, target: number) => loss ? value <= target : value >= target;
+  return (loss ? [...goal.targets].sort((a, b) => b - a) : goal.targets).map((target) => {
     let firstReached: string | null = null;
     let sustained: string | null = null;
     let streak = 0;
@@ -116,11 +133,11 @@ export function weightMilestones(readings: WeightReading[], goal: WeightGoal) {
     let sum = 0;
     for (let index = 0; index < ordered.length; index++) {
       const reading = ordered[index];
-      if (reading.value >= target) firstReached ??= reading.date;
+      if (reaches(reading.value, target)) firstReached ??= reading.date;
       sum += reading.value;
       while (calendarDayNumber(ordered[windowStart].date) < calendarDayNumber(reading.date) - 6) sum -= ordered[windowStart++].value;
       const count = index - windowStart + 1;
-      streak = count >= minimum && sum / count >= target ? count : 0;
+      streak = count >= minimum && reaches(sum / count, target) ? count : 0;
       if (streak) sustained ??= reading.date;
     }
     return { target, firstReached, sustained, currentStreak: streak };

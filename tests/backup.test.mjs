@@ -39,6 +39,19 @@ test("CSV round-trip retains workout timing, bodyweight, note, and exercise meta
   });
 });
 
+test("CSV round-trip strips the formula-injection guard from values starting with = + - @", () => {
+  for (const note of ["- felt strong", "=SUM(A1)", "+1 rep next time", "@gym", "'=literal quote", "'quoted already"]) {
+    const guarded = { ...workout, note, exercises: [{ ...workout.exercises[0], loadSuffix: "-ish", sets: [{ load: "-5", reps: "8" }] }] };
+    const guardedHistory = { [workout.exercises[0].name]: [{ ...history[workout.exercises[0].name][0], sets: guarded.exercises[0].sets }] };
+    const csv = createCsvBackup(guardedHistory, [guarded]);
+    if (note !== "'quoted already") assert.ok(csv.includes(`"'${note}"`));
+    const parsed = parseCsvBackup(csv);
+    assert.equal(parsed.workouts[0].note, note);
+    assert.equal(parsed.workouts[0].exercises[0].loadSuffix, "-ish");
+    assert.equal(parsed.sessions[0].sets[0].load, "-5");
+  }
+});
+
 test("legacy lift-only CSV files remain importable", () => {
   const csv = '"exercise","session_date","session_timestamp","session_id","set_number","load","reps"\r\n"Barbell bench press","2026-08-17","2026-08-17T06:00:00.000Z","old-1","1","55","8"';
   const parsed = parseCsvBackup(csv);

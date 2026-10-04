@@ -28,7 +28,7 @@
 .exercise-library-preview .poses { height: 180px; max-width: 420px; background: var(--demo); border-radius: 8px; overflow: hidden; }
 .exercise-library-preview .exercise-pose > img { display: block; }
 .plan-library { margin-top: 16px; border-top: 1px solid var(--line); padding-top: 12px; }
-.plan-library > summary { cursor: pointer; font-size: .85rem; }
+.plan-library > summary { min-height: 44px; display: flex; align-items: center; cursor: pointer; font-size: .85rem; }
 .plan-library .exercise-library { margin-top: 14px; }
 @media (max-width: 650px) {
   .exercise-library input, .exercise-library select { font-size: 16px; }

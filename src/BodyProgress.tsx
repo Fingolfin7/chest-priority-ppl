@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { CompletedWorkout } from "./sessionModel";
 import { TrendChart } from "./TrendChart";
 import {
-  BODY_PROGRESS_EVENT, MEASUREMENT_KEYS, combineWeightReadings, emptyBodyProgress,
+  BODY_PROGRESS_EVENT, MEASUREMENT_KEYS, checkEntryDate, combineWeightReadings, emptyBodyProgress,
   exportBodyProgress, localDay, parseBodyNumber, parseBodyProgress, saveBodyProgress, recentWeightAverages,
   type BodyMeasurement, type BodyProgressData, type MeasurementKey, type WeighIn,
 } from "./bodyProgressModel";
@@ -60,16 +60,16 @@ export function BodyProgress({ sessions, history, phase, phases, onPhotos, onPla
   const shownWeights = readings.filter((reading) => reading.date >= earliest);
   const shownMeasurements = data.measurements.filter((reading) => reading.date >= earliest);
   const averages = recentWeightAverages(readings, today);
-  async function persist(next: BodyProgressData, success: string): Promise<boolean> {
+  async function persist(next: BodyProgressData, success: string, entryDate?: string): Promise<boolean> {
     setBusy(true); setError(""); setMessage("");
-    try { const valid = parseBodyProgress(next); await saveBodyProgress(valid); setData(await exportBodyProgress()); setMessage(success); return true; }
+    try { if (entryDate !== undefined) checkEntryDate(entryDate); const valid = parseBodyProgress(next); await saveBodyProgress(valid); setData(await exportBodyProgress()); setMessage(success); return true; }
     catch (reason) { setError(failure(reason)); return false; }
     finally { setBusy(false); }
   }
   async function saveWeight(event: React.SubmitEvent<HTMLFormElement>) {
     event.preventDefault();
     const record: WeighIn = { ...weightForm, kg: parseBodyNumber(weightForm.kg), id: weightId ?? crypto.randomUUID(), updatedAt: new Date().toISOString() };
-    if (await persist({ ...data, weighIns: [...data.weighIns.filter((entry) => entry.id !== record.id), record] }, "Weigh-in saved on this device.")) {
+    if (await persist({ ...data, weighIns: [...data.weighIns.filter((entry) => entry.id !== record.id), record] }, "Weigh-in saved on this device.", record.date)) {
       setWeightId(null); setWeightForm({ date: localDay(), kg: "", note: "" }); setWeightOpen(false); navigate("overview");
     }
   }
@@ -77,7 +77,7 @@ export function BodyProgress({ sessions, history, phase, phases, onPhotos, onPla
     event.preventDefault();
     const record: BodyMeasurement = { id: measureId ?? crypto.randomUUID(), date: measureForm.date, note: measureForm.note, updatedAt: new Date().toISOString() };
     for (const key of MEASUREMENT_KEYS) if (measureForm[key].trim()) record[key] = parseBodyNumber(measureForm[key]);
-    if (await persist({ ...data, measurements: [...data.measurements.filter((entry) => entry.id !== record.id), record] }, "Measurements saved on this device.")) {
+    if (await persist({ ...data, measurements: [...data.measurements.filter((entry) => entry.id !== record.id), record] }, "Measurements saved on this device.", record.date)) {
       setMeasureId(null); setMeasureForm(blankMeasurement()); setMeasureOpen(false); navigate("overview");
     }
   }

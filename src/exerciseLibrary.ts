@@ -63,13 +63,20 @@ export function concreteExercises(slots: PlanExercise[]): PlanExercise[] {
     return { ...exercise, name, demos: slot.alternatives ? exercise.demos.filter((demo) => demo.label === name) : exercise.demos };
   }));
 }
-export function exerciseCatalog(saved: PlanExercise[] = []): PlanExercise[] {
+// Recently logged names (newest first) lead, then other remembered exercises, then the library.
+export function exerciseCatalog(saved: PlanExercise[] = [], recent: string[] = []): PlanExercise[] {
   const catalog = new Map(libraryExercises.map((exercise) => [normalizeExerciseSearch(exercise.name), structuredClone(exercise)]));
   const remembered = new Set<string>();
   for (const exercise of concreteExercises(saved)) {
     if (exercise.name.trim()) { const key = normalizeExerciseSearch(exercise.name); catalog.set(key, exercise); remembered.add(key); }
   }
-  return [...catalog.values()].sort((a, b) => Number(remembered.has(normalizeExerciseSearch(b.name))) - Number(remembered.has(normalizeExerciseSearch(a.name))));
+  const recency = new Map<string, number>();
+  for (const name of recent) { const key = normalizeExerciseSearch(name); if (!recency.has(key)) recency.set(key, recency.size); }
+  const rank = (exercise: PlanExercise) => { const key = normalizeExerciseSearch(exercise.name); return recency.get(key) ?? (remembered.has(key) ? recency.size : recency.size + 1); };
+  return [...catalog.values()].sort((a, b) => rank(a) - rank(b));
+}
+export function recentExerciseNames(sessions: Array<{ endedAt: string; exercises: Array<{ name: string }> }>): string[] {
+  return [...new Set([...sessions].sort((a, b) => b.endedAt.localeCompare(a.endedAt)).flatMap((session) => session.exercises.map((exercise) => exercise.name)))];
 }
 export function rememberedExercises(phases: Array<{ workouts: Record<string, { exercises: PlanExercise[] }> }>, sessions: Array<{ training?: { exercises: PlanExercise[] }; exercises: Array<{ name: string; priority: "must" | "optional"; loadSuffix?: string }> }>, active: PlanExercise[] = []): PlanExercise[] {
   const logged = [...sessions].reverse().flatMap((session) => session.training?.exercises ?? session.exercises.map((exercise) => {

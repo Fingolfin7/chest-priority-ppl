@@ -1,17 +1,28 @@
-import { defineConfig } from "vite";
+import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
+
+// Lists every built file so the service worker can precache assets that are not
+// referenced from index.html (the Automerge WASM, lazily imported chunks).
+function assetManifest(): Plugin {
+  return {
+    name: "rolling-ppl-asset-manifest",
+    apply: "build",
+    generateBundle(_options, bundle) {
+      const files = Object.keys(bundle).filter((file) => file.startsWith("assets/")).map((file) => `./${file}`).sort();
+      this.emitFile({ type: "asset", fileName: "asset-manifest.json", source: JSON.stringify(files) });
+    },
+  };
+}
 
 export default defineConfig({
   base: "./",
   resolve: {
-    // Inline Automerge's WASM so installed/offline PWAs need no separately
-    // fetched runtime and no extra WASM loader in Vite.
-    alias: [{ find: /^@automerge\/automerge$/, replacement: new URL("./node_modules/@automerge/automerge/dist/mjs/entrypoints/fullfat_base64.js", import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1") }],
+    alias: [{ find: /^@automerge\/automerge$/, replacement: new URL("./src/automergeRuntime.ts", import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1") }],
   },
   server: {
     host: "127.0.0.1",
     port: 4173,
     strictPort: true,
   },
-  plugins: [react()],
+  plugins: [react(), assetManifest()],
 });

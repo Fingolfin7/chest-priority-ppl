@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFileSync } from 'node:fs';
+const CURRENT_CACHE = readFileSync(new URL('../public/sw.js', import.meta.url), 'utf8').match(/CACHE_NAME = "([^"]+)"/)[1];
 import vm from 'node:vm';
 import { EXERCISE_IMAGE_BASE } from '../src/exerciseLibrary.ts';
 
@@ -39,7 +40,7 @@ test('external exercise images download once and are served offline; an uncached
 test('app upgrades preserve the image cache and other caches, removing only superseded app assets', async () => {
   const sw = worker();
   await sw.request(EXERCISE_IMAGE_BASE + 'Dumbbell_Bench_Press/0.jpg');
-  await sw.caches.open('rolling-ppl-v40'); await sw.caches.open('rolling-ppl-v41'); await sw.caches.open('another-app-cache');
+  await sw.caches.open('rolling-ppl-v40'); await sw.caches.open(CURRENT_CACHE); await sw.caches.open('another-app-cache');
   let pending; sw.handlers.activate({ waitUntil(value) { pending = value; } }); await pending;
-  assert.deepEqual((await sw.caches.keys()).sort(), ['another-app-cache', 'rolling-ppl-exercise-images-v1', 'rolling-ppl-v41']);
+  assert.deepEqual((await sw.caches.keys()).sort(), ['another-app-cache', 'rolling-ppl-exercise-images-v1', CURRENT_CACHE]);
 });

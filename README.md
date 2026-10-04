@@ -10,11 +10,12 @@ A phone-first, chest-prioritized rolling Push/Pull/Legs workout tracker. The seq
 - Gym-readable exercise rows with work sets, optional warm-ups, rest, cues, and click-to-enlarge public-domain photos
 - Crash-safe workout drafts and completed sessions with optional peer-to-peer browser sync
 - Previous-session context, per-set target placeholders, and double-progression suggestions
-- Edit past session times, bodyweight, notes, exercises, and sets from Sessions
+- Edit or delete past sessions (times, bodyweight, notes, exercises, and sets) from Sessions
+- A post-workout summary with sets, volume and new load/rep records
 - Optional bodyweight and session notes
 - Responsive bodyweight, recorded-volume, and working-weight plots with readable axes, selectable points, previous/next reading controls, and accessible data tables
 - Session frequency, recent lift history, and genuine load/rep milestones
-- Header-accessible Autumn connection modal and direct completed-session sync with idempotent retries
+- Automatic Autumn sync when a workout is saved, with a clear synced/failed status and Try again
 - Workout-history export and restore in structured JSON or spreadsheet-ready CSV, including workout timing, bodyweight, and notes
 - Light and dark themes with a remembered toggle
 - Installable PWA with offline workout access
@@ -31,7 +32,7 @@ Short-term outlooks extend recent bodyweight, top working weight and tape trends
 
 Progress photos are compressed and kept in the dedicated `rolling-ppl-progress-photos` IndexedDB database. Captures inside the app are not written to the phone gallery. Imported originals remain wherever selected. Camera capture requires HTTPS or localhost and permission. The app does not estimate measurements or body fat from photos. Browser storage is private to this site/browser profile, not an encrypted vault; clearing site data or losing the device can lose the local copy.
 
-**Progress → Photos → Photo backup** offers optional private cloud backup. Sign in once and enable backup; new photos save locally first and upload automatically while the app is open and online. Each photo shows **Backed up** or **Backup pending**. Existing device photos need one explicit **Back up existing photos** action. After clearing browser data or changing phones, sign in to the same account and choose **Recover photos**. Removing a device copy keeps its cloud backup unless you explicitly select cloud deletion. Pausing or signing out keeps local copies. An upload still pending cannot be recovered from the cloud.
+**Progress → Photos → Storage and backups → Cloud backup** offers optional private cloud backup. Sign in once and enable backup; new photos save locally first and upload automatically while the app is open and online. Each photo shows **Backed up** or **Backup pending**. Existing device photos need one explicit **Back up existing photos** action. After clearing browser data or changing phones, sign in to the same account and choose **Recover photos**. Removing a device copy keeps its cloud backup unless you explicitly select cloud deletion. Pausing or signing out keeps local copies. An upload still pending cannot be recovered from the cloud.
 
 Cloud photo backup uses separate AWS S3, Cognito and serverless API resources; workouts remain local with device sync. The public configuration contains no AWS credentials. See [deployment and recovery instructions](infra/photo-backup/README.md). Cloud backup defaults to 500 photos and 1 GiB per account and is metered by AWS usage; local exports remain useful as a separate copy.
 
@@ -41,7 +42,7 @@ When you open an outlook, the app saves a ready forecast at most once a week per
 
 Independent weigh-ins, tape measurements, goals, workouts and training phases use device sync. Photos use explicit file backups or optional account-based cloud backup; they are not sent through device sync. Saved forecasts travel through complete backups. Body edits and deletions merge by record identity and saved timestamp. Update both paired browsers before exchanging this expanded data.
 
-Complete backups have a 300 MiB limit; photo backups support up to 1,000 photos and 256 MiB per file. For larger collections, download a records backup and export photo batches by view/date from **Progress → Photos → Storage and photo backups**. Individual photos can be downloaded from their preview. A records backup cannot recover photos.
+Complete backups have a 300 MiB limit; photo backups support up to 1,000 photos and 256 MiB per file. For larger collections, download a records backup and export photo batches by view/date from **Progress → Photos → Storage and backups**. Individual photos can be downloaded from their preview. A records backup cannot recover photos.
 
 **Plan** supports whole programmes: Push/Pull/Legs, Upper/Lower, Full body, or your own ordered sequence of 1–12 named workouts. Edit exercises and prescriptions, then save a named phase. Prior phases remain available. Workouts retain their starting programme, sequence and prescriptions; later changes do not rewrite completed sessions or change an active session's plan.
 
@@ -49,7 +50,7 @@ Training and body tracking run in the offline-capable PWA without an account. On
 
 ## Local development
 
-Browser regression scripts use isolated Chrome contexts. Run `scripts/test-body-progress.mjs` for logging, camera cleanup and backup/restore; `scripts/test-progress-outlooks.mjs` for synthetic outlooks and a custom programme. Set `PLAYWRIGHT_MODULE` to an installed Playwright module URL and `PROGRESS_TEST_URL` to the dev server (default port 4187). For a built preview, `PROGRESS_TEST_PRODUCTION=1` adds offline restoration checks to the body-progress script. Test artifacts stay under ignored `outputs/`.
+Requires Node 22.18 or newer (unit tests import TypeScript directly). Browser regression scripts use isolated Chrome contexts. Run `scripts/test-body-progress.mjs` for logging, camera cleanup and backup/restore; `scripts/test-progress-outlooks.mjs` for synthetic outlooks and a custom programme. Set `PLAYWRIGHT_MODULE` to an installed Playwright module URL and `PROGRESS_TEST_URL` to the running server (these scripts default to port 4187; the dev server uses 4173). For a built preview, `PROGRESS_TEST_PRODUCTION=1` adds offline restoration checks to the body-progress script. Test artifacts stay under ignored `outputs/`.
 
 `scripts/test-cloud-photo-backup.mjs` exercises sign-in, upload retry, recovery, account isolation and deletion with mocked cloud services and synthetic photos. It never uses a personal browser profile or uploads real images. The backend's `test-live.mjs` verifies deployed AWS storage separately. Local development needs a matching callback/origin configuration to use live cloud sign-in; the checked-in config targets the published PWA.
 
@@ -76,13 +77,15 @@ Save exercises and finish as usual. The session appears in Sessions and updates 
 
 ## Edit past sessions
 
-Open **Sessions > Edit session**. Correct the start/end time, bodyweight, note, loads, or reps; add missed exercises/sets or remove incorrect entries. **Save changes** updates the session and its progression history together. **Cancel editing** discards the draft. Existing session and set IDs are preserved, and the active workout and next-workout sequence stay intact. If the session changes on another device while the editor is open, reopen it before saving.
+Open **Sessions > Edit session**. To remove a session logged by mistake, open **Session details > Delete session**; its sets leave lift history on every paired browser, and an Autumn record is not deleted. Correct the start/end time, bodyweight, note, loads, or reps; add missed exercises/sets or remove incorrect entries. **Save changes** updates the session and its progression history together. **Cancel editing** discards the draft. Existing session and set IDs are preserved, and the active workout and next-workout sequence stay intact. If the session changes on another device while the editor is open, reopen it before saving.
 
 Edits sync to paired Rolling PPL browsers. An existing Autumn receipt is retained, but the Autumn record is not updated automatically; correct that record separately.
 
 ## Autumn sync
 
-Open **Autumn** from the header, connect with an Autumn username/password or API token, and choose the current gym project. The password is used only for sign-in and is never stored. The returned token stays in that browser and is excluded from Rolling PPL backups.
+Open **More → Autumn**, connect with an Autumn username/password or API token, and choose the current gym project. The password is used only for sign-in and is never stored. The returned token stays in that browser and is excluded from Rolling PPL backups.
+
+Once connected, each saved workout is sent automatically. The workout summary shows Sending, Synced, or the failure reason with **Try again**; the Autumn button shows a count of failed sessions. Sessions from the last three days that never reached Autumn (closed tab, offline) are retried when the app opens or comes back online. Autumn deduplicates by session ID, so retries never create duplicates.
 
 ## Sync your phone and laptop
 
@@ -112,7 +115,7 @@ Under **Data**, choose **Workout export** or **Restore**. Export destinations in
 
 Tapping an export app immediately opens the device share sheet, where you select the installed app. Browsers cannot preselect a share target, and available apps depend on the device and file type. No transfer option opens a provider website. When file sharing is unavailable, use Download or Copy to clipboard and attach or paste the backup in the app. If a browser cannot share JSON directly, the share sheet receives the same backup as `.json.txt`, which this app can import without renaming. Import from a cloud provider in the device file picker, a saved attachment, or pasted JSON/CSV. Imports merge by record ID and preserve unrelated history.
 
-Workouts are timed and completed locally first. **Sync to Autumn** then posts one completed session with the original start/end timestamps and a stable UUID, so an interrupted retry cannot create a duplicate.
+Workouts are timed and completed locally first. Autumn sync then posts one completed session with the original start/end timestamps and a stable UUID, so an interrupted retry cannot create a duplicate.
 
 This project provides general workout organization and technique reminders, not medical care.
 

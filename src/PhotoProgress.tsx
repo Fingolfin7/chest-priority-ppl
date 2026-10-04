@@ -6,7 +6,6 @@ import {
   importProgressPhotos,
   PHOTO_BACKUP_MAX_BYTES,
   PHOTO_PROGRESS_CHANGE_EVENT,
-  parseProgressPhotoBackup,
   requestProgressPhotoPersistence,
   saveProgressPhoto,
   type ProgressPhoto,
@@ -42,6 +41,26 @@ function asErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : "Photo storage could not complete that action.";
 }
 
+function samePhotoImage(left: ProgressPhoto, right: ProgressPhoto) {
+  return left.createdAt === right.createdAt && left.blob.size === right.blob.size && left.thumbnail.size === right.thumbnail.size;
+}
+
+// Object URLs exist only while an image is mounted, so full-size copies are created on demand.
+function BlobImage({ blob, alt, loading }: { blob: Blob; alt: string; loading?: "lazy" }) {
+  const imageRef = useRef<HTMLImageElement>(null);
+  useEffect(() => {
+    const image = imageRef.current;
+    if (!image) return;
+    const url = URL.createObjectURL(blob);
+    image.src = url;
+    return () => {
+      image.removeAttribute("src");
+      URL.revokeObjectURL(url);
+    };
+  }, [blob]);
+  return <img ref={imageRef} alt={alt} loading={loading} />;
+}
+
 export function PhotoProgress() {
   const cloudBackup = useCloudPhotoBackup();
   const [photos, setPhotos] = useState<ProgressPhoto[]>([]);
@@ -51,6 +70,7 @@ export function PhotoProgress() {
   const [photoDate, setPhotoDate] = useState(todayLocal);
   const [importView, setImportView] = useState<ProgressPhotoView>("front");
   const [filterView, setFilterView] = useState<"all" | ProgressPhotoView>("all");
+  const [backupView, setBackupView] = useState<"all" | ProgressPhotoView>("all");
   const [backupFromDate, setBackupFromDate] = useState("");
   const [backupThroughDate, setBackupThroughDate] = useState("");
   const [storageInfo, setStorageInfo] = useState<{ usage?: number; quota?: number; persisted: boolean }>({ persisted: false });
@@ -64,12 +84,10 @@ export function PhotoProgress() {
   const [compareView, setCompareView] = useState<ProgressPhotoView>("front");
   const [beforeId, setBeforeId] = useState("");
   const [afterId, setAfterId] = useState("");
-  const [photoUrls, setPhotoUrls] = useState<Map<string, string>>(new Map());
   const [busy, setBusy] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const cameraRequestRef = useRef(0);
   const mountedRef = useRef(false);
-  const photoUrlsRef = useRef<Map<string, string>>(new Map());
   const refreshRequestRef = useRef(0);
   const dialogRef = useRef<HTMLElement>(null);
   const dialogActionRef = useRef<HTMLButtonElement>(null);
@@ -82,18 +100,16 @@ export function PhotoProgress() {
     try {
       const [savedPhotos, info] = await Promise.all([getProgressPhotos(), getProgressPhotoStorageInfo()]);
       if (requestId !== refreshRequestRef.current) return;
-      const urls = new Map<string, string>();
-      for (const photo of savedPhotos) {
-        urls.set(`${photo.id}:thumb`, URL.createObjectURL(photo.thumbnail));
-        urls.set(`${photo.id}:full`, URL.createObjectURL(photo.blob));
-      }
-      const previousUrls = photoUrlsRef.current;
-      photoUrlsRef.current = urls;
-      setPhotos(savedPhotos);
+      // Reuse blobs of unchanged photos so cloud status updates don't recreate image URLs.
+      setPhotos((current) => {
+        const previous = new Map(current.map((photo) => [photo.id, photo]));
+        return savedPhotos.map((photo) => {
+          const prior = previous.get(photo.id);
+          return prior && samePhotoImage(prior, photo) ? { ...photo, blob: prior.blob, thumbnail: prior.thumbnail } : photo;
+        });
+      });
       setStorageInfo(info);
-      setPhotoUrls(urls);
       setStorageError("");
-      previousUrls.forEach((url) => URL.revokeObjectURL(url));
     } catch (error) {
       if (requestId !== refreshRequestRef.current) return;
       setStorageError(asErrorMessage(error));
@@ -112,8 +128,6 @@ export function PhotoProgress() {
       cameraRequestRef.current += 1;
       mountedRef.current = false;
       window.removeEventListener(PHOTO_PROGRESS_CHANGE_EVENT, refresh);
-      photoUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
-      photoUrlsRef.current.clear();
     };
   }, [refresh]);
 
@@ -205,8 +219,9 @@ export function PhotoProgress() {
   );
   const checkInCount = useMemo(() => new Set(photos.map((photo) => photo.date)).size, [photos]);
   const viewCounts = useMemo(() => Object.fromEntries(VIEWS.map((view) => [view, photos.filter((photo) => photo.view === view).length])) as Record<ProgressPhotoView, number>, [photos]);
-  const backupPhotoCount = filteredPhotos.filter((photo) =>
-    (!backupFromDate || photo.date >= backupFromDate) && (!backupThroughDate || photo.date <= backupThroughDate),
+  const canCompare = VIEWS.some((view) => viewCounts[view] >= 2);
+  const backupPhotoCount = photos.filter((photo) =>
+    (backupView === "all" || photo.view === backupView) && (!backupFromDate || photo.date >= backupFromDate) && (!backupThroughDate || photo.date <= backupThroughDate),
   ).length;
   const invalidBackupDateRange = Boolean(backupFromDate && backupThroughDate && backupFromDate > backupThroughDate);
 
@@ -299,7 +314,7 @@ export function PhotoProgress() {
     setBusy(true);
     try {
       await saveProgressPhoto({ blob: file, date: photoDate, view: importView });
-      setStatus(`${viewLabel(importView)} photo added for ${displayDate(photoDate)}. The original remains in your gallery.`);
+      setStatus(`${viewLabel(importView)} photo added for ${displayDate(photoDate)}.`);
     } catch (error) {
       setStatus(asErrorMessage(error));
     } finally {
@@ -314,7 +329,7 @@ export function PhotoProgress() {
     try {
       await removePhotoWithCloudChoice(photo, deleteCloudCopy);
       setPendingDelete(null);
-        focusReturnRef.current = galleryHeadingRef.current;
+      focusReturnRef.current = galleryHeadingRef.current;
       setPreviewPhoto((current) => current?.id === photo.id ? null : current);
       setStatus(deleteCloudCopy ? "Photo removed from this device. Cloud deletion is queued and will finish when connected with backup enabled." : `${viewLabel(photo.view)} photo from ${displayDate(photo.date)} removed from this device. Any cloud backup is kept.`);
     } catch (error) {
@@ -328,23 +343,20 @@ export function PhotoProgress() {
     setBusy(true);
     try {
       const backup = await exportProgressPhotos({
-        ...(filterView === "all" ? {} : { view: filterView }),
+        ...(backupView === "all" ? {} : { view: backupView }),
         ...(backupFromDate ? { fromDate: backupFromDate } : {}),
         ...(backupThroughDate ? { throughDate: backupThroughDate } : {}),
       });
-      const payload = JSON.stringify(backup);
-      const verifiedBackup = parseProgressPhotoBackup(payload);
-      if (verifiedBackup.photos.length !== backup.photos.length) throw new Error("Photo backup verification failed. Try the export again.");
-      const blob = new Blob([payload], { type: "application/json" });
+      const blob = new Blob([JSON.stringify(backup)], { type: "application/json" });
       if (blob.size > PHOTO_BACKUP_MAX_BYTES) throw new Error("This selection is too large for one photo backup. Choose one view or a shorter date range, then export another file.");
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
-      const selection = filterView === "all" ? "photos" : `${filterView}-photos`;
+      const selection = backupView === "all" ? "photos" : `${backupView}-photos`;
       link.download = `rolling-ppl-${selection}-${backupFromDate || "all"}-to-${backupThroughDate || "all"}-${todayLocal()}.json`;
       link.click();
       window.setTimeout(() => URL.revokeObjectURL(url), 1_000);
-      setStatus(`Photo backup started with ${verifiedBackup.photos.length} ${verifiedBackup.photos.length === 1 ? "photo" : "photos"}. Keep a copy somewhere outside this browser.`);
+      setStatus(`Exported ${backup.photos.length} ${backup.photos.length === 1 ? "photo" : "photos"}. Keep the file somewhere outside this browser.`);
     } catch (error) {
       setStatus(asErrorMessage(error));
     } finally {
@@ -363,7 +375,7 @@ export function PhotoProgress() {
     setBusy(true);
     try {
       const count = await importProgressPhotos(await file.text());
-      setStatus(`${count} photo${count === 1 ? "" : "s"} merged. Existing photos with the same ID were kept; unrelated photos were preserved.`);
+      setStatus(`${count} photo${count === 1 ? "" : "s"} merged. Photos already on this device were kept.`);
     } catch (error) {
       setStatus(asErrorMessage(error));
     } finally {
@@ -376,7 +388,7 @@ export function PhotoProgress() {
     try {
       const granted = await requestProgressPhotoPersistence();
       await refresh();
-      setStatus(granted ? "The browser will protect this site's photo storage from automatic cleanup." : "The browser did not grant persistent storage. Export a backup to keep a separate copy.");
+      setStatus(granted ? "The browser will protect photo storage from automatic cleanup." : "The browser declined. Turn on cloud backup or export a copy.");
     } catch (error) {
       setStatus(asErrorMessage(error));
     } finally {
@@ -399,16 +411,14 @@ export function PhotoProgress() {
     {storageError && <p className="photo-progress-error" role="alert">{storageError}</p>}
     {status && <p className="photo-progress-status" role="status">{status}</p>}
 
-    <details className="photo-backup-accordion"><summary>Photo storage and backups</summary><div><CloudPhotoBackupPanel photos={photos} /></div></details>
-
-    <section className="photo-collection-summary" aria-label="Photo collection summary">
+    {(loading || photos.length > 0) && <section className="photo-collection-summary" aria-label="Photo collection summary">
       <div className="photo-collection-total"><strong>{loading ? "Loading your collection…" : `${photos.length} ${photos.length === 1 ? "photo" : "photos"}`}</strong>{!loading && <span>Across {checkInCount} {checkInCount === 1 ? "check-in" : "check-ins"}</span>}</div>
       {!loading && <ul aria-label="Photos by view">{VIEWS.map((view) => <li key={view}><span>{viewLabel(view)}</span><strong>{viewCounts[view]}</strong></li>)}</ul>}
-    </section>
+    </section>}
 
     <fieldset className="photo-add-card" disabled={busy || loading}>
       <legend>Add a check-in</legend>
-      <p>Use similar lighting and distance each time. Captures are compressed for private storage.</p>
+      <p>Use similar lighting and distance each time.</p>
       <div className="photo-add-fields">
         <label>Check-in date<input type="date" value={photoDate} onChange={(event) => setPhotoDate(event.target.value)} required /></label>
         <label>Imported photo view<select value={importView} onChange={(event) => setImportView(event.target.value as ProgressPhotoView)}>{VIEWS.map((view) => <option key={view} value={view}>{viewLabel(view)}</option>)}</select></label>
@@ -417,12 +427,12 @@ export function PhotoProgress() {
         <button type="button" className="primary-action" onClick={() => void startCamera()} disabled={!navigator.mediaDevices?.getUserMedia || cameraStarting || Boolean(cameraStream)}>{cameraStarting ? "Opening camera…" : "Guided camera check-in"}</button>
         <label className="secondary-action photo-file-button">Add from photos<input type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => void addFromFile(event)} /></label>
       </div>
-      <small>Imported photos are copied here. Their original files remain in your phone gallery.</small>
+      <small>Imports are copied here; originals stay in your gallery. Camera captures are not added to your gallery.</small>
     </fieldset>
 
     {cameraStream && <div className="photo-camera-card">
       <div className="photo-camera-heading"><div><span>View {cameraStep + 1} of 3</span><h3>{viewLabel(VIEWS[cameraStep])}</h3></div><button className="text-action" type="button" onClick={closeCamera} disabled={busy}>Cancel camera</button></div>
-      <p>Keep your whole body inside the guide. The front, side, and back views are captured in order.</p>
+      <p>Keep your whole body inside the guide. Front, side, and back are captured in order.</p>
       <div className="photo-camera-preview">
         <video ref={videoRef} autoPlay playsInline muted aria-label="Live camera preview for a progress photo" />
         <div className="photo-camera-frame" aria-hidden="true"><i /><i /><i /></div>
@@ -431,8 +441,8 @@ export function PhotoProgress() {
       <button type="button" className="primary-action photo-capture-button" onClick={() => { setStatus(""); setCountdown(3); }} disabled={countdown !== null || busy}>{countdown === null ? `Capture ${viewLabel(VIEWS[cameraStep])} in 3 seconds` : "Get ready…"}</button>
     </div>}
 
-    <section className="photo-compare" aria-labelledby="photo-compare-title">
-      <div className="photo-section-heading"><div><h3 id="photo-compare-title">Compare check-ins</h3><p>Choose two dates with the same view to compare side by side.</p></div>
+    {canCompare && <section className="photo-compare" aria-labelledby="photo-compare-title">
+      <div className="photo-section-heading"><div><h3 id="photo-compare-title">Compare check-ins</h3></div>
         <label>View<select value={compareView} onChange={(event) => setCompareView(event.target.value as ProgressPhotoView)}>{VIEWS.map((view) => <option key={view} value={view}>{viewLabel(view)}</option>)}</select></label>
       </div>
       {comparePhotos.length < 2 ? <p className="photo-empty">Add two {viewLabel(compareView).toLowerCase()} photos to compare them.</p> : <>
@@ -443,51 +453,53 @@ export function PhotoProgress() {
         <div className="photo-compare-grid">
           {[beforePhoto, afterPhoto].map((photo, index) => <article className="photo-compare-item" key={`${index}-${photo?.id ?? "empty"}`}>
             <h4>{index === 0 ? "Earlier" : "Later"}{photo && <time dateTime={photo.date}>{displayDate(photo.date)}</time>}</h4>
-            {photo && <img src={photoUrls.get(`${photo.id}:full`)} alt={`${viewLabel(photo.view)} view, ${displayDate(photo.date)}`} />}
+            {photo && <BlobImage blob={photo.blob} alt={`${viewLabel(photo.view)} view, ${displayDate(photo.date)}`} />}
           </article>)}
         </div>
       </>}
-    </section>
+    </section>}
 
     <section className="photo-gallery" aria-labelledby="photo-gallery-title">
-      <div className="photo-section-heading"><div><h3 id="photo-gallery-title" ref={galleryHeadingRef} tabIndex={-1}>Your check-ins</h3><p>Complete Backup includes device photos; workout exports do not. Each photo shows its backup status.</p></div>
+      <div className="photo-section-heading"><div><h3 id="photo-gallery-title" ref={galleryHeadingRef} tabIndex={-1}>Your check-ins</h3></div>
         <label>Show<select value={filterView} onChange={(event) => setFilterView(event.target.value as "all" | ProgressPhotoView)}><option value="all">All views</option>{VIEWS.map((view) => <option key={view} value={view}>{viewLabel(view)}</option>)}</select></label>
       </div>
-      <details className="photo-storage-details">
-        <summary>Storage and photo backups</summary>
-        <div className="photo-storage-content">
-          <section aria-labelledby="photo-storage-title">
-            <h3 id="photo-storage-title">Storage on this device</h3>
-            <p>Device copies stay in this browser. If enabled, photo backup also uploads private copies to your account. Camera captures are not added to your phone gallery.</p>
-            <p className="photo-storage-usage">{formatBytes(storageInfo.usage)} of {formatBytes(storageInfo.quota)} site storage used</p>
-            {!storageInfo.persisted && <button type="button" className="secondary-action" onClick={() => void protectStorage()} disabled={busy}>Ask browser to protect photos</button>}
-            {storageInfo.persisted && <p className="photo-storage-protected">Your browser is protecting this site&apos;s storage from automatic cleanup.</p>}
-          </section>
-          <section className="photo-backup-tools" aria-labelledby="photo-backup-title">
-            <h3 id="photo-backup-title">Move photos to another device</h3>
-            <p>Complete Backup includes all photos. For a smaller separate file, export the view shown above and narrow it by date.</p>
-            <div className="photo-backup-dates">
-              <label>Start date<input type="date" value={backupFromDate} onChange={(event) => setBackupFromDate(event.target.value)} /></label>
-              <label>End date<input type="date" value={backupThroughDate} onChange={(event) => setBackupThroughDate(event.target.value)} /></label>
-            </div>
-            {invalidBackupDateRange && <p className="photo-backup-date-error" role="alert">Start date must be before end date.</p>}
-            <div className="photo-backup-actions">
-              <button type="button" className="secondary-action" onClick={() => void exportBackup()} disabled={busy || loading || backupPhotoCount === 0 || invalidBackupDateRange}>Export {backupPhotoCount} {backupPhotoCount === 1 ? "photo" : "photos"}</button>
-              <label className="secondary-action photo-file-button">Import photo backup<input type="file" accept="application/json,.json" onChange={(event) => void importBackup(event)} /></label>
-            </div>
-            <p className="photo-backup-note">If a selection is too large for one file, split it by view or choose a shorter date range. You can also download a single photo from its preview.</p>
-          </section>
-        </div>
-      </details>
       {loading ? <p className="photo-empty">Loading private photos…</p> : filteredPhotos.length === 0 ? <p className="photo-empty">No {filterView === "all" ? "photos" : `${filterView} photos`} saved yet.</p> : <div className="photo-grid">
         {filteredPhotos.map((photo) => <article className="photo-card" key={photo.id}>
           <button className="photo-thumbnail-button" type="button" onClick={(event) => { focusReturnRef.current = event.currentTarget; setPreviewPhoto(photo); }} aria-label={`Open ${viewLabel(photo.view)} photo from ${displayDate(photo.date)}`}>
-            <img src={photoUrls.get(`${photo.id}:thumb`)} alt="" loading="lazy" />
+            <BlobImage blob={photo.thumbnail} alt="" loading="lazy" />
           </button>
           <div className="photo-card-details"><div><strong>{displayDate(photo.date)}</strong><span>{viewLabel(photo.view)} view</span><span className="photo-cloud-status">{cloudPhotoStatus(photo, cloudBackup)}</span></div><button type="button" className="text-action" onClick={(event) => { focusReturnRef.current = event.currentTarget; setDeleteCloudCopy(false); setPendingDelete(photo); }} disabled={busy}>Delete</button></div>
         </article>)}
       </div>}
     </section>
+
+    <details className="photo-backup-accordion photo-storage-details">
+      <summary>Storage and backups</summary>
+      <div className="photo-storage-content">
+        <section aria-labelledby="photo-storage-title">
+          <h3 id="photo-storage-title">On this device</h3>
+          <p>Photos live in this browser. Clearing site data deletes any that are not backed up.</p>
+          <p className="photo-storage-usage">{formatBytes(storageInfo.usage)} of {formatBytes(storageInfo.quota)} site storage used</p>
+          {storageInfo.persisted ? <p className="photo-storage-protected">Protected from automatic browser cleanup.</p> : <button type="button" className="secondary-action" onClick={() => void protectStorage()} disabled={busy}>Ask browser to protect photos</button>}
+        </section>
+        <CloudPhotoBackupPanel photos={photos} />
+        <section className="photo-backup-tools" aria-labelledby="photo-backup-title">
+          <h3 id="photo-backup-title">Export or import photo files</h3>
+          <p>Complete Backup includes all photos; workout exports do not. Export a smaller file here, split by view or date if it is too large.</p>
+          <div className="photo-backup-dates">
+            <label className="photo-backup-view">View<select value={backupView} onChange={(event) => setBackupView(event.target.value as "all" | ProgressPhotoView)}><option value="all">All views</option>{VIEWS.map((view) => <option key={view} value={view}>{viewLabel(view)}</option>)}</select></label>
+            <label>Start date<input type="date" value={backupFromDate} onChange={(event) => setBackupFromDate(event.target.value)} /></label>
+            <label>End date<input type="date" value={backupThroughDate} onChange={(event) => setBackupThroughDate(event.target.value)} /></label>
+          </div>
+          {invalidBackupDateRange && <p className="photo-backup-date-error" role="alert">Start date must be before end date.</p>}
+          <div className="photo-backup-actions">
+            <button type="button" className="secondary-action" onClick={() => void exportBackup()} disabled={busy || loading || backupPhotoCount === 0 || invalidBackupDateRange}>Export {backupPhotoCount} {backupPhotoCount === 1 ? "photo" : "photos"}</button>
+            <label className="secondary-action photo-file-button">Import photo file<input type="file" accept="application/json,.json" onChange={(event) => void importBackup(event)} /></label>
+          </div>
+          <p className="photo-backup-note">To save a single photo, open it and choose Download.</p>
+        </section>
+      </div>
+    </details>
 
     {pendingDelete && <div className="photo-dialog-backdrop"><section ref={dialogRef} tabIndex={-1} className="photo-confirm-dialog" role="alertdialog" aria-modal="true" aria-labelledby="photo-delete-title" aria-describedby="photo-delete-description">
       <h3 id="photo-delete-title">Remove this photo?</h3><p id="photo-delete-description">The {viewLabel(pendingDelete.view).toLowerCase()} photo from {displayDate(pendingDelete.date)} will be removed from this device. Any original in your gallery stays there. Your cloud copy is kept unless you choose to delete it below.</p>
@@ -498,7 +510,7 @@ export function PhotoProgress() {
 
     {previewPhoto && <div className="photo-dialog-backdrop"><section ref={dialogRef} tabIndex={-1} className="photo-preview-dialog" role="dialog" aria-modal="true" aria-labelledby="photo-preview-title">
       <div><h3 id="photo-preview-title">{viewLabel(previewPhoto.view)} · {displayDate(previewPhoto.date)}</h3><div className="photo-preview-actions"><button type="button" className="secondary-action" onClick={() => downloadPhoto(previewPhoto)}>Download photo</button><button ref={dialogActionRef} type="button" className="text-action" onClick={() => setPreviewPhoto(null)}>Close</button></div></div>
-      <img src={photoUrls.get(`${previewPhoto.id}:full`)} alt={`${viewLabel(previewPhoto.view)} view, ${displayDate(previewPhoto.date)}`} />
+      <BlobImage blob={previewPhoto.blob} alt={`${viewLabel(previewPhoto.view)} view, ${displayDate(previewPhoto.date)}`} />
     </section></div>}
   </section>;
 }

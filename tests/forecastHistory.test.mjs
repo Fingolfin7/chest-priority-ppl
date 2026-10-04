@@ -52,3 +52,10 @@ test('forecast backups round-trip model versions and imports never replace an is
   assert.equal(merged.snapshots.length, 1);
   assert.equal(merged.snapshots[0].reason, original.reason);
 });
+
+test('stored forecast history accepts cutoffs ahead of this device clock, issuing does not', () => {
+  const tomorrow = day(new Date().toISOString().slice(0, 10), 2), ahead = issue(tomorrow);
+  assert.equal(parseForecastHistory({ schemaVersion: 1, snapshots: [ahead] }).snapshots.length, 1);
+  assert.equal(mergeForecastHistory(parseForecastHistory({ schemaVersion: 1, snapshots: [] }), { schemaVersion: 1, snapshots: [ahead] }).snapshots.length, 1);
+  assert.throws(() => parseForecastHistory({ schemaVersion: 1, snapshots: [ahead] }, day(tomorrow, -1)), /issue date/);
+});
