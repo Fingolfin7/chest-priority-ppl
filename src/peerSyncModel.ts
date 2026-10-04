@@ -394,7 +394,7 @@ function validateField(parts: string[], value: Scalar) {
     return;
   }
   if (kind === "checkpoint" && parts.length === 3) { checkpoint(value); return; }
-  if (!validPath) throw new Error("Sync data contains an unsupported field.");
+  if (!validPath) throw new Error(`Sync data contains an unsupported field (${parts.slice(0, 4).join(" / ").slice(0, 160)}).`);
   if (field === "alive") { if (typeof value !== "boolean") throw new Error("Invalid sync deletion marker."); return; }
   if (field === "order") { if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0 || value > 100_000) throw new Error("Invalid exercise order."); return; }
   if (field === "activeId" && value === null) return;

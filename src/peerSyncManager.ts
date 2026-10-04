@@ -6,7 +6,9 @@ import { recoveryJournal, recoverySnapshots, type RecoveryJournal } from "./reco
 
 // Version 1 kept everything, including a full document save, in one "current"
 // record rewritten on every change. Version 2 keeps small metadata, a compacted
-// document and appended incremental changes; it migrates version 1 on first save.
+// document and appended incremental changes in the same object store (no
+// IndexedDB schema upgrade, so an older open tab can never block startup); it
+// migrates version 1 on the first save.
 type LegacyPersisted = {
   version: 1; document: Uint8Array; identity: DeviceIdentity; devices: PairedDevice[];
   name: string; enabled: boolean; revoked: string[]; original: SyncSnapshot;
@@ -21,6 +23,9 @@ export type SyncView = {
 const RECOVERY_KEY = "rolling-ppl-sync-recovery-v1";
 // Appended change chunks are folded into one full save after this many writes.
 const COMPACT_AFTER = 100;
+const CHANGE_PREFIX = "change:";
+const changeKey = (sequence: number) => `${CHANGE_PREFIX}${String(sequence).padStart(12, "0")}`;
+const changeRange = () => IDBKeyRange.bound(CHANGE_PREFIX, `${CHANGE_PREFIX}\uffff`);
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 function heads(doc: A.Doc<SyncData>) { return JSON.stringify(A.getHeads(doc).sort()); }
@@ -29,36 +34,37 @@ function packet(type: number, body: Uint8Array) {
 }
 function openDatabase(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
-    const request = indexedDB.open("rolling-ppl-peer-sync-v1", 2);
-    request.onupgradeneeded = () => {
+    // No version argument: an existing database is opened as-is and never upgraded.
+    const request = indexedDB.open("rolling-ppl-peer-sync-v1");
+    request.onupgradeneeded = () => { if (!request.result.objectStoreNames.contains("state")) request.result.createObjectStore("state"); };
+    request.onsuccess = () => {
       const db = request.result;
-      if (!db.objectStoreNames.contains("state")) db.createObjectStore("state");
-      if (!db.objectStoreNames.contains("changes")) db.createObjectStore("changes", { autoIncrement: true });
+      // Never be the tab that blocks a future version's upgrade.
+      db.onversionchange = () => db.close();
+      resolve(db);
     };
-    request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error);
     request.onblocked = () => reject(new Error("Close other Rolling PPL tabs, then reload."));
   });
 }
 function readState(db: IDBDatabase): Promise<StoredState> {
   return new Promise((resolve, reject) => {
-    const transaction = db.transaction(["state", "changes"], "readonly");
+    const transaction = db.transaction("state", "readonly");
     const state = transaction.objectStore("state");
-    const result: StoredState = { changes: [] };
-    const legacy = state.get("current"), meta = state.get("meta"), document = state.get("document"), changes = transaction.objectStore("changes").getAll();
-    transaction.oncomplete = () => resolve({ ...result, legacy: legacy.result, meta: meta.result, document: document.result, changes: changes.result as Uint8Array[] });
+    const legacy = state.get("current"), meta = state.get("meta"), document = state.get("document"), changes = state.getAll(changeRange());
+    transaction.oncomplete = () => resolve({ legacy: legacy.result, meta: meta.result, document: document.result, changes: changes.result as Uint8Array[] });
     transaction.onerror = () => reject(transaction.error);
     transaction.onabort = () => reject(transaction.error ?? new Error("Local sync data could not be read."));
   });
 }
-type StateWrite = { meta: Metadata; document?: Uint8Array; change?: Uint8Array; original?: SyncSnapshot };
+type StateWrite = { meta: Metadata; document?: Uint8Array; change?: { key: string; bytes: Uint8Array }; original?: SyncSnapshot };
 function writeState(db: IDBDatabase, write: StateWrite): Promise<void> {
   return new Promise((resolve, reject) => {
-    const transaction = db.transaction(["state", "changes"], "readwrite");
-    const state = transaction.objectStore("state"), changes = transaction.objectStore("changes");
+    const transaction = db.transaction("state", "readwrite");
+    const state = transaction.objectStore("state");
     state.put(write.meta, "meta");
-    if (write.document) { state.put(write.document, "document"); changes.clear(); state.delete("current"); }
-    if (write.change) changes.add(write.change);
+    if (write.document) { state.put(write.document, "document"); state.delete(changeRange()); state.delete("current"); }
+    if (write.change) state.put(write.change.bytes, write.change.key);
     if (write.original) state.put(write.original, "original");
     transaction.oncomplete = () => resolve();
     transaction.onerror = () => reject(transaction.error);
@@ -99,6 +105,9 @@ export class PeerSyncManager {
   private pendingOriginal?: SyncSnapshot;
   private persistedHeads?: A.Heads;
   private changeCount = 0;
+  // Set when startup could not use IndexedDB: the visit keeps working from memory,
+  // the localStorage mirrors and the crash journal, and never overwrites stored data.
+  private storageDisabled = false;
   private identity!: DeviceIdentity;
   private db?: IDBDatabase;
   private transport?: PeerSyncTransport;
@@ -184,8 +193,10 @@ export class PeerSyncManager {
       this.publish(); await this.persist();
       if (this.view.enabled && !this.view.removed) this.startTransport();
     } catch (error) {
-      // Storage failed: keep working from the localStorage copy for this visit.
-      if (this.seed) { this.plant(); this.publish(); }
+      // Storage failed: keep working from the localStorage copy for this visit,
+      // and stop writing so a partly loaded state can never replace stored data.
+      this.db?.close(); this.db = undefined; this.storageDisabled = true;
+      try { if (this.seed) { this.plant(); this.publish(); } } catch { /* The empty document still lets the app open. */ }
       this.refresh({ enabled: false });
       this.fail(new Error(`Device sync is unavailable: ${error instanceof Error ? error.message : "local storage failed"}. Your workout copy is still available.`));
     }
@@ -228,8 +239,10 @@ export class PeerSyncManager {
     try { localStorage.setItem(RECOVERY_KEY, JSON.stringify(recoveryJournal(this.durableSnapshot, this.snapshot))); }
     catch { this.fail(new Error("Crash recovery could not save. Keep this page open until synced or export a backup.")); }
   }
+  reportError(message: string) { this.fail(new Error(message)); }
   private persist() {
     this.flushPendingInputs();
+    if (this.storageDisabled) return Promise.resolve();
     if (!this.db || !this.identity) return Promise.reject(new Error("This browser could not open its sync storage."));
     const baseline = this.snapshot, doc = this.doc, db = this.db;
     const meta: Metadata = { version: 2, identity: this.identity, devices: this.devices, name: this.view.name, enabled: this.view.enabled, revoked: [...this.revoked] };
@@ -240,7 +253,7 @@ export class PeerSyncManager {
       const compact = !this.persistedHeads || this.changeCount >= COMPACT_AFTER;
       const changed = !compact && [...heads].sort().join() !== [...this.persistedHeads!].sort().join();
       const original = this.pendingOriginal;
-      await writeState(db, { meta, ...(compact ? { document: A.save(doc) } : changed ? { change: A.saveSince(doc, this.persistedHeads!) } : {}), ...(original ? { original } : {}) });
+      await writeState(db, { meta, ...(compact ? { document: A.save(doc) } : changed ? { change: { key: changeKey(this.changeCount), bytes: A.saveSince(doc, this.persistedHeads!) } } : {}), ...(original ? { original } : {}) });
       if (original === this.pendingOriginal) this.pendingOriginal = undefined;
       this.persistedHeads = heads; this.changeCount = compact ? 0 : this.changeCount + Number(changed);
       this.durableSnapshot = baseline; this.journal();
@@ -294,7 +307,7 @@ export class PeerSyncManager {
     transport.start();
   }
   async enable() {
-    if (!this.db || !this.identity) throw new Error("Device sync storage is unavailable. Reload and try again.");
+    if (!this.db || !this.identity) throw new Error("Device sync storage is unavailable. Close other Rolling PPL tabs, then reload.");
     if (this.view.removed) { this.identity = await createIdentity(); this.devices = []; this.refresh(); }
     this.refresh({ enabled: true, error: "" }); await this.persist(); this.startTransport();
   }

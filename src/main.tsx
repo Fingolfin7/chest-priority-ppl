@@ -528,7 +528,8 @@ async function boot() {
   // The localStorage seed is only read when this browser has no saved sync document.
   const manager = new PeerSyncManager(initialSyncSnapshot);
   await manager.initialize();
-  await attachBodyProgressSync(manager);
+  // Body records have their own store; a failure there must not stop workouts from opening.
+  await attachBodyProgressSync(manager).catch((error) => manager.reportError(`Body progress could not connect to device sync: ${error instanceof Error ? error.message : String(error)}`));
   document.addEventListener("visibilitychange", () => { if (document.hidden) manager.flushPendingInputs(); });
   window.addEventListener("pagehide", () => manager.flushPendingInputs());
   createRoot(document.getElementById("root")!).render(<StrictMode><App manager={manager} /></StrictMode>);
