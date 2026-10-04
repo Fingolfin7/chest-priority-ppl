@@ -32,8 +32,7 @@ import { FreeSessionPicker } from "./FreeSessionPicker";
 import { ExerciseImages } from "./ExerciseImages";
 import { ExpandableDescription } from "./ExpandableDescription";
 import { recentExerciseNames, rememberedExercises } from "./exerciseLibrary";
-import "./styles.css";
-import "./redesign.css";
+import "./app.css";
 import "./exerciseLibrary.css";
 
 type Theme = "light" | "dark";
