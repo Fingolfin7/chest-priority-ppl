@@ -43,6 +43,13 @@
   --sans: system-ui, -apple-system, "Segoe UI", sans-serif;
   --mono: var(--sans);
   --danger: #a3362b;
+  /* Per-workout accents, assigned by position in the programme (workoutAccent.ts). */
+  --accent-1: #356044;
+  --accent-2: #8d5c49;
+  --accent-3: #3e5c87;
+  --accent-4: #74507f;
+  --accent-5: #7a5c14;
+  --accent-6: #8a4a5c;
 }
 
 :root[data-theme="dark"] {
@@ -80,6 +87,12 @@
   --demo-caption-ink: #d7e4e1;
   --action-ink: #132b25;
   --danger: #f0a196;
+  --accent-1: #9bddcb;
+  --accent-2: #c78970;
+  --accent-3: #a3bde6;
+  --accent-4: #d2abdd;
+  --accent-5: #dcc27e;
+  --accent-6: #e6a6b6;
 }
 
 body {
@@ -468,30 +481,6 @@ footer {
 .workout-tabs button.active {
   color: white;
   box-shadow: 0 2px 8px #18202a1c;
-}
-
-.workout-tabs button.active.push {
-  background: var(--push);
-}
-
-.workout-tabs button.active.pull {
-  background: var(--pull);
-}
-
-.workout-tabs button.active.legs {
-  background: var(--legs);
-}
-
-.workout.push {
-  --workout-accent: var(--push);
-}
-
-.workout.pull {
-  --workout-accent: var(--pull);
-}
-
-.workout.legs {
-  --workout-accent: var(--legs);
 }
 
 .workout-header {
@@ -1114,14 +1103,6 @@ footer p {
 
 .training-rail {
   --rail-accent: var(--push);
-}
-
-.training-rail.pull {
-  --rail-accent: var(--pull);
-}
-
-.training-rail.legs {
-  --rail-accent: var(--legs);
 }
 
 .rail-main {
@@ -3115,11 +3096,9 @@ footer {
 .utility-menu-panel > * {
   min-width: 0;
 }
-
 .utility-menu-panel .peer-sync-button,
 .utility-menu-panel > .utility-button,
 .utility-menu-panel > .install-button,
-.utility-menu-panel > .theme-menu-button,
 .utility-menu-panel > .export-menu {
   width: 100%;
   min-height: 42px;
@@ -3148,18 +3127,6 @@ footer {
   margin: 8px 0 0;
   overflow: visible;
   box-shadow: none;
-}
-
-.theme-menu-button {
-  min-height: 40px;
-  padding: 0 10px;
-  cursor: pointer;
-  color: var(--ink);
-  background: var(--soft);
-  border: 1px solid var(--line);
-  border-radius: 7px;
-  font-size: .78rem;
-  font-weight: 620;
 }
 
 .utility-button,
@@ -3331,10 +3298,6 @@ footer {
   border: 1px solid var(--line);
   border-left: 3px solid var(--summary-accent);
   border-radius: 10px;
-}
-
-.workout-summary.pull {
-  --summary-accent: var(--pull);
 }
 
 .summary-heading {
@@ -5031,5 +4994,98 @@ footer {
     transition-duration: .01ms !important;
     animation-duration: .01ms !important;
     animation-iteration-count: 1 !important;
+  }
+}
+
+/* Workout accents. Kept last so they override the neutral defaults on the rail,
+   workout cards and summary. */
+.accent-1 {
+  --workout-accent: var(--accent-1);
+  --rail-accent: var(--accent-1);
+  --summary-accent: var(--accent-1);
+}
+
+.accent-2 {
+  --workout-accent: var(--accent-2);
+  --rail-accent: var(--accent-2);
+  --summary-accent: var(--accent-2);
+}
+
+.accent-3 {
+  --workout-accent: var(--accent-3);
+  --rail-accent: var(--accent-3);
+  --summary-accent: var(--accent-3);
+}
+
+.accent-4 {
+  --workout-accent: var(--accent-4);
+  --rail-accent: var(--accent-4);
+  --summary-accent: var(--accent-4);
+}
+
+.accent-5 {
+  --workout-accent: var(--accent-5);
+  --rail-accent: var(--accent-5);
+  --summary-accent: var(--accent-5);
+}
+
+.accent-6 {
+  --workout-accent: var(--accent-6);
+  --rail-accent: var(--accent-6);
+  --summary-accent: var(--accent-6);
+}
+
+.train-workout-tabs button {
+  box-shadow: inset 0 -3px 0 color-mix(in srgb, var(--workout-accent, transparent) 35%, transparent);
+}
+
+.train-workout-tabs button.active {
+  box-shadow: inset 0 -3px 0 var(--workout-accent, transparent);
+}
+
+.frequency-card > div span[class*="accent-"] {
+  border-left: 3px solid var(--workout-accent);
+}
+
+/* Appearance toggle beside the More menu. */
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.theme-toggle {
+  width: 42px;
+  height: 42px;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  padding: 0;
+  cursor: pointer;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.theme-toggle svg {
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.theme-toggle:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--push) 45%, transparent);
+  outline-offset: 2px;
+}
+
+@media (max-width: 720px) {
+  .theme-toggle {
+    width: 40px;
+    height: 40px;
   }
 }
