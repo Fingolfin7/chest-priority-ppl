@@ -32,6 +32,11 @@ All routes require `Authorization: Bearer <Cognito access token>`. JSON errors a
 | `POST /photos/{id}/confirm` | Body: `{uploadId}`. Response: `{photo}`. Idempotent for a completed matching upload. |
 | `GET /photos/{id}/download` | `{url,expiresAt,photo}`; signed GET lasts five minutes. |
 | `DELETE /photos/{id}` | `{id,deletedAt}`. Idempotent; creates a tombstone even for an unknown ID. |
+| `GET /records` | `{devices:[{device,name,savedAt,size,workouts,foodDays,weighIns,copies:[{date,size,savedAt}]}]}`, newest first. |
+| `PUT /records/{device}?name=...` | Body: gzip-compressed records-only complete backup, `Content-Type: application/gzip`, at most 4 MiB. Response: `{latest}`. |
+| `GET /records/{device}/download?copy=latest\|YYYY-MM-DD` | `{url,expiresAt,copy}`; signed GET lasts five minutes. |
+
+Records backups are stored at `users/<Cognito sub>/records/<device>/latest.json.gz` and `.../daily/<UTC date>.json.gz`. Device IDs are 8–64 letters/numbers/underscore/hyphen chosen by each browser. The backend decompresses the upload (capped at 32 MiB), checks it is a records-only complete backup and computes the workout/food-day/weigh-in counts itself. Daily copies carry the `records-history=true` tag and expire after 90 days through the bucket lifecycle; latest copies are kept. An account can have at most 20 browsers with records copies. Records do not count against the photo quota. Listing records needs `s3:ListBucket`, limited to the `users/` prefix.
 
 `photo` is `{id,date,view,mimeType,size,checksumSha256,width,height,createdAt,updatedAt}`. `tombstone` is `{id,deletedAt}`. `checksumSha256` is a canonical base64 SHA-256 of the exact uploaded Blob. MIME must be JPEG, PNG or WebP; date must be a real ISO date and view front/side/back. Dimensions describe the local metadata; the backend verifies positive bounded dimensions, image file signatures, byte size and checksum but does not decode images to verify the dimensions.
 

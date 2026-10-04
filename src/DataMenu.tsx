@@ -3,6 +3,7 @@ import type { HistoryMap } from "./historyMigration";
 import type { CompletedWorkout } from "./sessionModel";
 import type { PeerSyncManager } from "./peerSyncManager";
 import { FullBackup } from "./FullBackup";
+import { CloudRecordsBackupPanel } from "./CloudRecordsBackupPanel";
 import { createBackupFile, createBackupText, downloadBackup, JSON_AS_TEXT_KEY, prefersTextSharing, shareableBackup, type ExportFormat } from "./transfer";
 
 // Restore hints for where a backup file usually lives. Exports use one Share
@@ -133,7 +134,7 @@ export function DataMenu({ history, workouts, onImport, manager }: {
         <button id="data-tab-workouts" type="button" aria-pressed={panel === "workouts"} aria-controls="data-panel-workouts" onClick={() => selectPanel("workouts")}>Workout export</button>
         <button id="data-tab-restore" type="button" aria-pressed={panel === "restore"} aria-controls="data-panel-restore" onClick={() => selectPanel("restore")}>Restore</button>
       </div>
-        {manager && <div id="data-complete-backup" role="region" aria-label={panel === "restore" ? "Restore complete backup" : "Complete backup"} hidden={panel === "workouts"}><FullBackup manager={manager} embedded mode={panel === "restore" ? "restore" : "backup"} /></div>}
+        {manager && <div id="data-complete-backup" role="region" aria-label={panel === "restore" ? "Restore complete backup" : "Complete backup"} hidden={panel === "workouts"}><FullBackup manager={manager} embedded mode={panel === "restore" ? "restore" : "backup"} /><CloudRecordsBackupPanel mode={panel === "restore" ? "restore" : "backup"} /></div>}
 
       {panel === "workouts" && <section id="data-panel-workouts" aria-labelledby="data-tab-workouts" className="data-workout-panel">
         <h2 ref={heading} tabIndex={-1}>Workout export</h2>

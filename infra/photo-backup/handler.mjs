@@ -1,9 +1,9 @@
-import { S3Client, HeadObjectCommand, GetObjectCommand, CopyObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
+import { S3Client, HeadObjectCommand, GetObjectCommand, CopyObjectCommand, DeleteObjectCommand, ListObjectsV2Command, PutObjectCommand } from '@aws-sdk/client-s3';
 import { createPresignedPost } from '@aws-sdk/s3-presigned-post';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient, GetCommand, QueryCommand, ScanCommand, TransactWriteCommand } from '@aws-sdk/lib-dynamodb';
-import { ApiError, createService, createHandler, hasImageSignature, MAX_ACCOUNT_BYTES, MAX_ACCOUNT_PHOTOS } from './core.mjs';
+import { ApiError, createService, createHandler, createRecordsService, hasImageSignature, MAX_ACCOUNT_BYTES, MAX_ACCOUNT_PHOTOS } from './core.mjs';
 
 const table = process.env.MANIFEST_TABLE;
 const bucket = process.env.PHOTO_BUCKET;
@@ -149,7 +149,72 @@ const objects = {
   },
 };
 
-const apiHandler = createHandler(createService({ store, objects }), process.env.CLIENT_ID);
+// Records backups: users/<sub>/records/<device>/latest.json.gz plus one tagged
+// copy per UTC day that the bucket lifecycle expires. Keys are built only here.
+const recordsPrefix = (user) => `users/${user}/records/`;
+const recordsKey = (user, device, copy) => `${recordsPrefix(user)}${device}/${copy === 'latest' ? 'latest' : `daily/${copy}`}.json.gz`;
+const missingObject = (e) => e.name === 'NotFound' || e.$metadata?.httpStatusCode === 404;
+async function headRecords(user, device, copy) {
+  try { return await s3.send(new HeadObjectCommand({ Bucket: bucket, Key: recordsKey(user, device, copy) })); }
+  catch (e) { if (missingObject(e)) return undefined; throw e; }
+}
+function recordsSummary(device, head) {
+  const meta = head.Metadata ?? {};
+  const number = (value) => Number.isSafeInteger(Number(value)) ? Number(value) : 0;
+  let name = '';
+  try { name = decodeURIComponent(meta['device-name'] ?? ''); } catch { /* Show the copy without a label. */ }
+  return { device, name, savedAt: meta['saved-at'] ?? head.LastModified?.toISOString() ?? '', size: head.ContentLength ?? 0,
+    workouts: number(meta.workouts), foodDays: number(meta['food-days']), weighIns: number(meta['weigh-ins']) };
+}
+async function listRecordKeys(user, delimiter) {
+  const contents = []; const prefixes = []; let token;
+  do {
+    const page = await s3.send(new ListObjectsV2Command({ Bucket: bucket, Prefix: recordsPrefix(user), Delimiter: delimiter, ContinuationToken: token }));
+    contents.push(...(page.Contents ?? [])); prefixes.push(...(page.CommonPrefixes ?? []));
+    token = page.IsTruncated ? page.NextContinuationToken : undefined;
+  } while (token);
+  return { contents, prefixes };
+}
+const records = {
+  async exists(user, device) { return Boolean(await headRecords(user, device, 'latest')); },
+  async deviceCount(user) { return (await listRecordKeys(user, '/')).prefixes.length; },
+  async put(user, device, bytes, latest, day) {
+    const Metadata = { 'saved-at': latest.savedAt, workouts: String(latest.workouts), 'food-days': String(latest.foodDays),
+      'weigh-ins': String(latest.weighIns), 'device-name': encodeURIComponent(latest.name) };
+    const common = { Bucket: bucket, Body: bytes, ContentType: 'application/gzip', ServerSideEncryption: 'AES256', Metadata };
+    await s3.send(new PutObjectCommand({ ...common, Key: recordsKey(user, device, day), Tagging: 'records-history=true' }));
+    await s3.send(new PutObjectCommand({ ...common, Key: recordsKey(user, device, 'latest') }));
+  },
+  async list(user) {
+    const devices = new Map();
+    const pattern = /^([A-Za-z0-9_-]{8,64})\/(?:latest|daily\/(\d{4}-\d{2}-\d{2}))\.json\.gz$/;
+    for (const object of (await listRecordKeys(user)).contents) {
+      const match = pattern.exec(object.Key.slice(recordsPrefix(user).length));
+      if (!match) continue;
+      const [, device, date] = match;
+      const entry = devices.get(device) ?? { copies: [] };
+      if (date) entry.copies.push({ date, size: object.Size ?? 0, savedAt: object.LastModified?.toISOString() ?? '' });
+      else entry.latest = true;
+      devices.set(device, entry);
+    }
+    const result = [];
+    for (const [device, entry] of devices) {
+      if (!entry.latest) continue;
+      const head = await headRecords(user, device, 'latest');
+      if (head) result.push({ ...recordsSummary(device, head), copies: entry.copies.sort((a, b) => b.date.localeCompare(a.date)) });
+    }
+    return result;
+  },
+  async download(user, device, copy) {
+    const head = await headRecords(user, device, copy);
+    if (!head) return undefined;
+    const url = await getSignedUrl(s3, new GetObjectCommand({ Bucket: bucket, Key: recordsKey(user, device, copy),
+      ResponseContentType: 'application/gzip', ResponseCacheControl: 'private, no-store' }), { expiresIn: 300 });
+    return { url, expiresAt: new Date(Date.now() + 300000).toISOString(), copy: recordsSummary(device, head) };
+  },
+};
+
+const apiHandler = createHandler(createService({ store, objects }), process.env.CLIENT_ID, createRecordsService({ records }));
 export const handler = async (event) => {
   if (event.source === 'aws.events' && event['detail-type'] === 'Scheduled Event' && !event.requestContext) {
     await cleanupExpired();

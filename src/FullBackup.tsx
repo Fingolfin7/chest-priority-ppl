@@ -1,14 +1,9 @@
 import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import type { PeerSyncManager } from "./peerSyncManager";
-import { exportBodyProgress, importBodyProgress, parseBodyProgress, type BodyProgressData } from "./bodyProgressModel";
-import { exportProgressPhotos, importProgressPhotos, parseProgressPhotoBackup, type PhotoProgressBackup } from "./photoStorage";
-import { FULL_BACKUP_SCHEMA, MAX_FULL_BACKUP_BYTES, mergeBackupSnapshot, validateBackupSnapshot } from "./backupBundle";
+import { MAX_FULL_BACKUP_BYTES } from "./backupBundle";
 import { downloadBackup } from "./transfer";
-import type { SyncSnapshot } from "./peerSyncModel";
-import { exportForecastHistory, importForecastHistory, parseForecastHistory, type ForecastHistoryBackup } from "./forecastHistory";
+import { createCompleteBackup, describeBackup, parseCompleteBackup, restoreCompleteBackup, type ReadyBackup } from "./completeBackup";
 import "./fullBackup.css";
-
-type ReadyBackup = { snapshot: SyncSnapshot; body: BodyProgressData; photos: PhotoProgressBackup; photosIncluded: boolean; forecastHistory?: ForecastHistoryBackup };
 const LAST_EXPORT = "rolling-ppl-last-complete-export";
 
 export function FullBackup({ manager, embedded = false, mode = "backup", hidden = false }: {
@@ -37,13 +32,9 @@ export function FullBackup({ manager, embedded = false, mode = "backup", hidden 
     setBusy(true);
     setNotice("Preparing your backup…");
     try {
-      manager.flushPendingInputs();
-      const snapshot = validateBackupSnapshot(manager.getSnapshot());
-      const body = await exportBodyProgress();
-      const forecastHistory = await exportForecastHistory();
-      const photos = includePhotos ? await exportProgressPhotos() : { schema: "rolling-ppl-progress-photos", version: 1, photos: [] as const };
-      const exportedAt = new Date().toISOString();
-      const file = new File([JSON.stringify({ schema: FULL_BACKUP_SCHEMA, version: 1, exportedAt, photosIncluded: includePhotos, snapshot, body, photos, forecastHistory })], `rolling-ppl-${includePhotos ? "complete" : "records"}-${exportedAt.slice(0, 10)}.json`, { type: "application/json" });
+      const backup = await createCompleteBackup(manager, includePhotos);
+      const { exportedAt } = backup;
+      const file = new File([JSON.stringify(backup)], `rolling-ppl-${includePhotos ? "complete" : "records"}-${exportedAt.slice(0, 10)}.json`, { type: "application/json" });
       if (file.size > MAX_FULL_BACKUP_BYTES) throw new Error("This complete backup is too large for one file. Download a records backup, then export photos in smaller view or date groups from Progress → Photos.");
       downloadBackup(file);
       try { localStorage.setItem(LAST_EXPORT, exportedAt); } catch { /* The download does not depend on this preference. */ }
@@ -67,13 +58,7 @@ export function FullBackup({ manager, embedded = false, mode = "backup", hidden 
     setNotice("Checking the backup…");
     try {
       if (file.size > MAX_FULL_BACKUP_BYTES) throw new Error("Choose a complete backup smaller than 300 MB.");
-      const value = JSON.parse(await file.text());
-      if (!value || value.schema !== FULL_BACKUP_SCHEMA || value.version !== 1) throw new Error("This is not a complete backup. Use Restore → Workout history for JSON or CSV exports.");
-      const snapshot = validateBackupSnapshot(value.snapshot);
-      const body = parseBodyProgress(value.body);
-      const photos = parseProgressPhotoBackup(value.photos);
-      const forecastHistory = value.forecastHistory === undefined ? undefined : parseForecastHistory(value.forecastHistory);
-      setReady({ snapshot, body, photos, photosIncluded: value.photosIncluded !== false, forecastHistory });
+      setReady(parseCompleteBackup(JSON.parse(await file.text())));
       setNotice("Backup checked. Review its contents before restoring.");
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "This backup could not be read. Nothing has changed.");
@@ -85,12 +70,7 @@ export function FullBackup({ manager, embedded = false, mode = "backup", hidden 
     setBusy(true);
     setNotice("Restoring the backup. Keep this page open…");
     try {
-      validateBackupSnapshot(mergeBackupSnapshot(manager.getSnapshot(), ready.snapshot));
-      await importProgressPhotos(ready.photos);
-      await importBodyProgress(ready.body);
-      manager.change(mergeBackupSnapshot(manager.getSnapshot(), ready.snapshot));
-      await manager.saveNow();
-      if (ready.forecastHistory) await importForecastHistory(ready.forecastHistory);
+      await restoreCompleteBackup(manager, ready);
       setReady(null);
       setNotice("Backup restored. Existing unrelated records were kept. Photos save locally; enabled photo backup can also upload restored photos.");
     } catch (error) {
@@ -101,19 +81,19 @@ export function FullBackup({ manager, embedded = false, mode = "backup", hidden 
   const content = <div className={`complete-backup-panel${embedded ? " embedded" : ""}`} hidden={hidden} aria-label={mode === "backup" ? "Complete backup" : "Restore a complete backup"}>
     {mode === "backup" ? <>
       <h2>Complete backup</h2>
-      <p>One file with workouts, plans, body records, saved forecasts, and private photos.</p>
+      <p>One file with workouts, plans, the food log, body records, saved forecasts, and private photos.</p>
       <label className="backup-photo-choice"><input type="checkbox" checked={includePhotos} disabled={busy} onChange={(event) => setIncludePhotos(event.target.checked)} />Include private photos</label>
       {!includePhotos && <p className="backup-small">Records only. For photos, open Progress → Photos → Storage and photo backups.</p>}
       <button type="button" className="primary-action" disabled={busy} onClick={() => void download()}>{includePhotos ? "Download complete backup" : "Download records backup"}</button>
       <p className="backup-small">{lastExport ? `Last download started ${new Date(lastExport).toLocaleString()}.` : "No complete backup downloaded on this device yet."}</p>
-      <details className="backup-details"><summary>What is included?</summary><p>Workout records, body records and saved forecasts are included. Account credentials and device pairing keys are left out. Photos are included only when selected; optional cloud photo backup is managed separately in Progress → Photos.</p></details>
+      <details className="backup-details"><summary>What is included?</summary><p>Workout records, the food log, body records and saved forecasts are included. Account credentials and device pairing keys are left out. Photos are included only when selected; optional cloud photo backup is managed separately in Progress → Photos.</p></details>
     </> : <>
       <h2>Restore a complete backup</h2>
       <p>Choose a complete Rolling PPL backup. Review the contents before you restore it.</p>
       <label className="backup-file">Choose complete backup<input type="file" accept=".json,.txt,application/json" disabled={busy} onChange={(event) => void choose(event)} /></label>
       {ready && <div className="backup-preview">
         <strong>Ready to restore</strong>
-        <p>{ready.snapshot.completed.length} workouts · {ready.body.weighIns.length} weigh-ins · {ready.body.measurements.length} measurements · {ready.photos.photos.length} photos · {ready.forecastHistory?.snapshots.length ?? 0} saved forecasts</p>
+        <p>{describeBackup(ready)}</p>
         {!ready.photosIncluded && <p>Photos were not included; existing photos on this device will stay intact.</p>}
         <p>Matching workout IDs use the backup copy. Body records use their latest saved version. Your current workout and plan stay selected if this browser already has training history.</p>
         <button type="button" className="primary-action" disabled={busy} onClick={() => void restore()}>Restore this backup</button>

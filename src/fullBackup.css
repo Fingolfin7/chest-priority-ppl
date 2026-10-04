@@ -19,6 +19,10 @@
 .backup-preview { margin-top:.8rem; padding-top:.8rem; border-top:1px solid var(--line); }
 .backup-preview>strong { font-size:.8rem; }
 .backup-preview p { margin:.45rem 0; }
+#data-complete-backup>.cloud-records-backup { margin-top:1rem; padding:1rem 0 0; background:none; border:0; border-top:1px solid var(--line); border-radius:0; }
+.cloud-records-device { padding:.7rem 0; display:grid; gap:.35rem; border-top:1px solid var(--line); }
+.cloud-records-device p { margin:0; }
+.cloud-records-device .transfer-format { display:grid; gap:.3rem; font-size:.75rem; font-weight:650; }
 .backup-notice { margin:.5rem 0 0; padding:.65rem .7rem; background:var(--soft); border-radius:6px; overflow-wrap:anywhere; }
 .data-menu-tabs { margin-bottom:.55rem; padding:.2rem; display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:.2rem; background:var(--soft); border-radius:8px; }
 .data-menu-tabs button { min-height:44px; padding:.4rem .2rem; color:var(--muted); background:transparent; border:1px solid transparent; border-radius:6px; font:650 .68rem/1.2 var(--sans); }

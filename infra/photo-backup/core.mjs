@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { gunzipSync } from 'node:zlib';
 
 export const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
 export const MAX_ACCOUNT_BYTES = Number(process.env.MAX_ACCOUNT_BYTES ?? 1024 * 1024 * 1024);
@@ -6,6 +7,13 @@ export const MAX_ACCOUNT_PHOTOS = Number(process.env.MAX_ACCOUNT_PHOTOS ?? 500);
 const ID = /^[A-Za-z0-9_-]{1,128}$/;
 const SUB = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
 const MIME = ['image/jpeg', 'image/png', 'image/webp'];
+// Records backups are gzip-compressed complete backups without photos. Base64
+// inflation keeps 4 MiB under Lambda's 6 MB synchronous request limit.
+export const MAX_RECORDS_BYTES = 4 * 1024 * 1024;
+export const MAX_RECORDS_JSON_BYTES = 32 * 1024 * 1024;
+export const MAX_RECORD_DEVICES = 20;
+const DEVICE = /^[A-Za-z0-9_-]{8,64}$/;
+const COPY_DATE = /^\d{4}-\d{2}-\d{2}$/;
 export class ApiError extends Error {
   constructor(status, code, message) { super(message); this.status = status; this.code = code; }
 }
@@ -120,20 +128,80 @@ export function createService({ store, objects, now = () => new Date().toISOStri
   };
 }
 
-export function createHandler(service, clientId) {
+export function validDevice(device) { if (typeof device !== 'string' || !DEVICE.test(device)) invalid('Invalid backup device.'); return device; }
+export function deviceLabel(value) {
+  if (value == null) return '';
+  if (typeof value !== 'string' || value.length > 200) invalid('Invalid device name.');
+  return value.replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, 60);
+}
+// The summary is computed here rather than trusted from the client, so the
+// restore list always describes what the stored file actually contains.
+export function summarizeRecords(bytes) {
+  if (!Buffer.isBuffer(bytes) || bytes.length < 18) invalid('A records backup is required.');
+  if (bytes.length > MAX_RECORDS_BYTES) throw new ApiError(413, 'BACKUP_LIMIT', 'This records backup is larger than 4 MiB compressed.');
+  if (bytes[0] !== 0x1f || bytes[1] !== 0x8b) invalid('Records backup must be gzip compressed.');
+  let value;
+  try { value = JSON.parse(gunzipSync(bytes, { maxOutputLength: MAX_RECORDS_JSON_BYTES }).toString('utf8')); }
+  catch { invalid('Records backup could not be read.'); }
+  const snapshot = value?.snapshot;
+  if (!value || typeof value !== 'object' || value.schema !== 'rolling-ppl-complete-backup' || value.version !== 1 || value.photosIncluded !== false
+    || !Array.isArray(value.photos?.photos) || value.photos.photos.length || !snapshot || typeof snapshot !== 'object' || !Array.isArray(snapshot.completed)) {
+    invalid('This is not a Rolling PPL records backup.');
+  }
+  const count = (list) => Array.isArray(list) ? list.length : 0;
+  return { workouts: snapshot.completed.length, foodDays: count(snapshot.nutrition?.days),
+    weighIns: Math.max(count(snapshot.bodyProgress?.weighIns), count(value.body?.weighIns)) };
+}
+export function createRecordsService({ records, now = () => new Date().toISOString() }) {
+  return {
+    async list(user) {
+      const devices = await records.list(user);
+      return { devices: devices.sort((a, b) => b.savedAt.localeCompare(a.savedAt)) };
+    },
+    async put(user, device, bytes, name) {
+      validDevice(device);
+      const summary = summarizeRecords(bytes);
+      const label = deviceLabel(name);
+      if (!await records.exists(user, device) && await records.deviceCount(user) >= MAX_RECORD_DEVICES) {
+        throw new ApiError(413, 'BACKUP_LIMIT', `Cloud records backup supports ${MAX_RECORD_DEVICES} browsers per account.`);
+      }
+      const savedAt = now();
+      const latest = { device, name: label, savedAt, size: bytes.length, ...summary };
+      // Each browser writes only its own copies, so a new or cleared browser can never replace another browser's backup.
+      await records.put(user, device, bytes, latest, savedAt.slice(0, 10));
+      return { latest };
+    },
+    async download(user, device, copy = 'latest') {
+      validDevice(device);
+      if (copy !== 'latest' && (typeof copy !== 'string' || !COPY_DATE.test(copy))) invalid('Invalid backup copy.');
+      const result = await records.download(user, device, copy);
+      if (!result) throw new ApiError(404, 'RECORDS_NOT_FOUND', 'This cloud records copy no longer exists.');
+      return result;
+    },
+  };
+}
+
+export function createHandler(service, clientId, recordsService) {
   return async (event) => {
     try {
       const user = userFromEvent(event, clientId);
       const method = event.requestContext?.http?.method;
       const path = event.rawPath;
+      const raw = event.body ? Buffer.from(event.body, event.isBase64Encoded ? 'base64' : 'utf8') : undefined;
+      const records = /^\/records(?:\/([A-Za-z0-9_-]{1,128})(?:\/(download))?)?$/.exec(path ?? '');
       let body;
-      if (event.body) {
-        const raw = event.isBase64Encoded ? Buffer.from(event.body, 'base64').toString('utf8') : event.body;
-        if (Buffer.byteLength(raw) > 4096) invalid('Request is too large.');
-        try { body = JSON.parse(raw); } catch { invalid('Invalid JSON request.'); }
+      if (raw && !(records && method === 'PUT')) {
+        if (raw.length > 4096) invalid('Request is too large.');
+        try { body = JSON.parse(raw.toString('utf8')); } catch { invalid('Invalid JSON request.'); }
       }
       let result;
-      if (method === 'GET' && path === '/photos') result = await service.list(user, event.queryStringParameters?.cursor);
+      if (records && recordsService) {
+        const [, device, action] = records;
+        if (method === 'GET' && !device) result = await recordsService.list(user);
+        else if (method === 'PUT' && device && !action) result = await recordsService.put(user, device, raw, event.queryStringParameters?.name);
+        else if (method === 'GET' && device && action) result = await recordsService.download(user, device, event.queryStringParameters?.copy);
+        else throw new ApiError(404, 'NOT_FOUND', 'Endpoint not found.');
+      } else if (method === 'GET' && path === '/photos') result = await service.list(user, event.queryStringParameters?.cursor);
       else {
         const match = /^\/photos\/([A-Za-z0-9_-]{1,128})(?:\/(upload|confirm|download))?$/.exec(path ?? '');
         if (!match) throw new ApiError(404, 'NOT_FOUND', 'Endpoint not found.');

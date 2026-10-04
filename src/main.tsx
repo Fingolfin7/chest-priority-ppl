@@ -1,6 +1,7 @@
 import { Fragment, StrictMode, useEffect, useEffectEvent, useMemo, useRef, useState, useSyncExternalStore, type FormEvent, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { initializeCloudPhotoBackup } from "./cloudPhotoBackup";
+import { startCloudRecordsBackup } from "./cloudRecordsBackup";
 import {
   DEFAULT_AUTUMN_URL, defaultAutumnSettings, getAutumnAccount, listAutumnProjects,
   pushWorkoutToAutumn, signInToAutumn, type AutumnProject, type AutumnSettings,
@@ -545,6 +546,7 @@ async function boot() {
   window.addEventListener("pagehide", () => manager.flushPendingInputs());
   createRoot(document.getElementById("root")!).render(<StrictMode><App manager={manager} /></StrictMode>);
   void initializeCloudPhotoBackup();
+  startCloudRecordsBackup(manager);
   if ("serviceWorker" in navigator && import.meta.env.PROD) {
     void navigator.serviceWorker.register("./sw.js").then((registration) => {
       void registration.update();

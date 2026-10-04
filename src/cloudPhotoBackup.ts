@@ -117,6 +117,25 @@ export async function disconnectCloudPhotoBackup() {
   if (currentConfig) await signOutCloudPhotos(currentConfig, currentSession);
 }
 
+// Records backup shares this account session. These helpers keep a single
+// owner of the session and its refreshes.
+export async function signInForCloudBackup(flag: string) {
+  await initializeCloudPhotoBackup();
+  if (!config) return;
+  sessionStorage.setItem(flag, "yes");
+  await signInCloudPhotos(config);
+}
+export async function cloudBackupAccess() {
+  await initializeCloudPhotoBackup();
+  if (!config || !session) throw new Error("Sign in to use cloud backup.");
+  const owner = session.owner;
+  const refreshed = await refreshCloudPhotoSession(config, session);
+  if (session?.owner !== owner) throw new Error("The cloud backup account changed. Try again.");
+  session = refreshed;
+  storeCloudPhotoSession(refreshed);
+  return { owner, token: refreshed.accessToken, apiBaseUrl: config.apiBaseUrl };
+}
+
 export async function signInAgainCloudPhotoBackup() {
   if (!config) return;
   sessionStorage.setItem("rolling-ppl:enable-photo-backup", "yes");

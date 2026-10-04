@@ -43,7 +43,7 @@ Progress photos are compressed and kept in the dedicated `rolling-ppl-progress-p
 
 **Progress → Photos → Storage and backups → Cloud backup** offers optional private cloud backup. Sign in once and enable backup; new photos save locally first and upload automatically while the app is open and online. Each photo shows **Backed up** or **Backup pending**. Existing device photos need one explicit **Back up existing photos** action. After clearing browser data or changing phones, sign in to the same account and choose **Recover photos**. Removing a device copy keeps its cloud backup unless you explicitly select cloud deletion. Pausing or signing out keeps local copies. An upload still pending cannot be recovered from the cloud.
 
-Cloud photo backup uses separate AWS S3, Cognito and serverless API resources; workouts remain local with device sync. The public configuration contains no AWS credentials. See [deployment and recovery instructions](infra/photo-backup/README.md). Cloud backup defaults to 500 photos and 1 GiB per account and is metered by AWS usage; local exports remain useful as a separate copy.
+Cloud photo and records backup use separate AWS S3, Cognito and serverless API resources. The public configuration contains no AWS credentials. See [deployment and recovery instructions](infra/photo-backup/README.md). Cloud backup defaults to 500 photos and 1 GiB per account and is metered by AWS usage; local exports remain useful as a separate copy.
 
 When you open an outlook, the app saves a ready forecast at most once a week per metric. **Compare with forecast from** shows that fixed original forecast alongside recorded results and the latest projection. New readings never rewrite the original. Forecasts start when this feature is used; the app does not invent predictions for earlier dates. Saved forecasts live locally and are included in complete backups.
 
@@ -57,11 +57,19 @@ Complete backups have a 300 MiB limit; photo backups support up to 1,000 photos 
 
 Training and body tracking run in the offline-capable PWA without an account. Only optional cloud photo backup requires signing in. Install from Chrome on Android or Safari's Add to Home Screen on iPhone. Backups remain necessary even when persistent browser storage is granted.
 
+## Cloud records backup
+
+**Data → Backup → Cloud backup** keeps an automatic copy of workouts, active drafts, plans, the food log, body records, goals, measurements and saved forecasts in the same private account as photo backup. Photos are not included; they use photo backup. Turn it on per browser. It uploads about 30 seconds after a change (at most one upload every 30 seconds while logging), straight away when the app is hidden, and again when the app reopens or comes back online if anything is still waiting. Unchanged records are not re-sent, and a browser with no records never uploads.
+
+Each browser uploads only its own copy, identified by a random ID kept in that browser. A cleared or half-synced browser therefore never replaces another browser's backup. The cloud keeps each browser's latest copy plus its last copy of every UTC day for 90 days. **Data → Restore → Restore from cloud** lists every browser's copy with its workout, food-day and weigh-in counts. Pick the latest or a daily copy, check it, then restore. Restoring merges like a downloaded complete backup and never deletes local records.
+
+The copy is a gzip-compressed records-only complete backup (at most 4 MiB compressed; up to 20 browsers per account). Cloud records backup needs the backup stack from this commit or later; redeploy with `infra/photo-backup/deploy.sh`.
+
 ## Local development
 
 Requires Node 22.18 or newer (unit tests import TypeScript directly). Browser regression scripts use isolated Chrome contexts. Run `scripts/test-body-progress.mjs` for logging, camera cleanup and backup/restore; `scripts/test-progress-outlooks.mjs` for synthetic outlooks and a custom programme. Set `PLAYWRIGHT_MODULE` to an installed Playwright module URL and `PROGRESS_TEST_URL` to the running server (these scripts default to port 4187; the dev server uses 4173). For a built preview, `PROGRESS_TEST_PRODUCTION=1` adds offline restoration checks to the body-progress script. Test artifacts stay under ignored `outputs/`.
 
-`scripts/test-cloud-photo-backup.mjs` exercises sign-in, upload retry, recovery, account isolation and deletion with mocked cloud services and synthetic photos. It never uses a personal browser profile or uploads real images. The backend's `test-live.mjs` verifies deployed AWS storage separately. Local development needs a matching callback/origin configuration to use live cloud sign-in; the checked-in config targets the published PWA.
+`scripts/test-cloud-records-backup.mjs` checks records backup sign-in, upload throttling, upload on hide, the empty-browser guard and cloud restore with a mocked account. `scripts/test-cloud-photo-backup.mjs` exercises sign-in, upload retry, recovery, account isolation and deletion with mocked cloud services and synthetic photos. It never uses a personal browser profile or uploads real images. The backend's `test-live.mjs` verifies deployed AWS storage separately. Local development needs a matching callback/origin configuration to use live cloud sign-in; the checked-in config targets the published PWA.
 
 `scripts/test-forecast-history.mjs` checks original/current/recorded curves, immutable backup merges, reload persistence, and saved forecasts with sparse or deleted current history at desktop and phone widths.
 
