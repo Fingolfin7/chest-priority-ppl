@@ -26,7 +26,7 @@ export const defaultWorkouts: PlanWorkouts = {
     prescribe("Back squat", {"sets":"3","reps":"5–8","rest":"3–5 min","warmup":"3–4 ramp sets","priority":"must"}),
     prescribe("Conventional deadlift", {"sets":"2","reps":"4–6","rest":"3–5 min","warmup":"2–3 ramp sets × 3–5","priority":"must"}),
     prescribe("Leg curl", {"sets":"3","reps":"10–15","rest":"60–90 sec","warmup":"1 light set × 12–15","priority":"must"}),
-    {"name":"Quad accessory","alternatives":["Leg press","Bulgarian split squat"],"sets":"2–3","reps":"8–12","rest":"2–3 min","warmup":"1–2 light sets × 8","cue":"Choose the option you can control through a comfortable range. Keep your knee tracking over your foot.","priority":"optional","demos":[{"label":"Leg press","slug":"leg-press"},{"label":"Bulgarian split squat","slug":"split-squat"}]},
+    {"name":"Quad accessory","alternatives":["Leg Extensions","Bulgarian split squat"],"sets":"2–3","reps":"8–12","rest":"2–3 min","warmup":"1–2 light sets × 8","cue":"Choose the option you can control through a comfortable range. Move smoothly without swinging or bouncing.","priority":"optional","demos":[{"label":"Leg Extensions","slug":"db-leg-extensions"},{"label":"Bulgarian split squat","slug":"split-squat"}]},
     prescribe("Calf raise", {"sets":"2–3","reps":"10–15","rest":"60–90 sec","warmup":"1 easy set × 12–15","priority":"optional"}),
     prescribe("Ab crunch machine", {"sets":"2–3","reps":"10–15","rest":"60–90 sec","warmup":"1 light set × 12–15","priority":"optional"}),
   ] },
