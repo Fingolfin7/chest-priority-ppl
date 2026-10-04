@@ -3,8 +3,10 @@ import type { HistoryMap } from "./historyMigration";
 import type { CompletedWorkout } from "./sessionModel";
 import type { PeerSyncManager } from "./peerSyncManager";
 import { FullBackup } from "./FullBackup";
-import { createBackupFile, createBackupText, downloadBackup, shareableBackup, type ExportFormat } from "./transfer";
+import { createBackupFile, createBackupText, downloadBackup, JSON_AS_TEXT_KEY, prefersTextSharing, shareableBackup, type ExportFormat } from "./transfer";
 
+// Restore hints for where a backup file usually lives. Exports use one Share
+// button: a web page cannot pick the app; the device's share sheet does.
 const destinations = {
   drive: { label: "Google Drive", mark: "G", importHint: "Choose Google Drive in your file picker. If it is missing, save your backup to this device from the Drive app first." },
   onedrive: { label: "OneDrive", mark: "O", importHint: "Choose OneDrive in your file picker. If it is missing, save your backup to this device from the OneDrive app first." },
@@ -32,6 +34,10 @@ export function DataMenu({ history, workouts, onImport, manager }: {
   const [pasted, setPasted] = useState("");
   const [copyFallback, setCopyFallback] = useState("");
   const hasHistory = workouts.length > 0 || Object.values(history).some((sessions) => sessions.length > 0);
+  const [canShareFiles] = useState(() => {
+    try { return typeof navigator.share === "function" && typeof navigator.canShare === "function" && navigator.canShare({ files: [new File(["x"], "x.txt", { type: "text/plain" })] }); }
+    catch { return false; }
+  });
   const selected = destination && destination !== "paste" ? destinations[destination] : null;
 
   useEffect(() => {
@@ -69,24 +75,24 @@ export function DataMenu({ history, workouts, onImport, manager }: {
       setNotice({ kind: "info", message: `Download started: ${file.name}` });
     } catch { setNotice({ kind: "error", message: "The download could not start. Try copying the backup instead." }); }
   };
-  const share = async (target?: Destination) => {
-    const app = target ? destinations[target].label : "an app";
-    setNotice({ kind: "info", message: `Choose ${app} in the share sheet.` });
+  const share = async () => {
     setBusy(true);
     setCopyFallback("");
+    let shareFile: File | null = null;
     try {
       const file = createBackupFile(history, workouts, format);
-      const shareFile = typeof navigator.share === "function" && typeof navigator.canShare === "function" ? shareableBackup(file, (data) => navigator.canShare(data)) : null;
-      if (!shareFile) {
-        setNotice({ kind: "info", message: "This browser cannot share backup files with installed apps. Use Download or Copy to clipboard, then attach or paste the backup in the app." });
-        return;
-      }
+      const preferText = prefersTextSharing(navigator.userAgent, navigator.maxTouchPoints, localStorage.getItem(JSON_AS_TEXT_KEY) === "1");
+      shareFile = shareableBackup(file, (data) => navigator.canShare(data), preferText);
+      if (!shareFile) { setNotice({ kind: "info", message: "This browser cannot share this file. Use Download or Copy to clipboard instead." }); return; }
       await navigator.share({ files: [shareFile], title: "Rolling PPL workout history" });
-      setNotice({ kind: "info", message: `Choose ${app} in the share sheet to complete the transfer. If it is missing, use Download or Copy to clipboard and attach or paste the backup in the app.` });
+      setNotice({ kind: "info", message: `Pick Drive, WhatsApp, email or another app in the share sheet.${shareFile.name.endsWith(".json.txt") ? " The .json.txt file restores the same way as .json." : ""}` });
     } catch (error) {
-      setNotice({ kind: "info", message: error instanceof Error && error.name === "AbortError"
-        ? "Sharing canceled or no app available. You can try again or download the backup."
-        : "Sharing could not finish. Try again, or download and attach the backup." });
+      const name = error instanceof Error ? error.name : "";
+      // A refused file type cannot be retried in the same tap: remember to send JSON as text.
+      if (name === "NotAllowedError" && shareFile?.type === "application/json") {
+        try { localStorage.setItem(JSON_AS_TEXT_KEY, "1"); } catch { /* The next tap still offers Download. */ }
+        setNotice({ kind: "info", message: "This device refused the JSON file type. Tap Share again to send it as a .json.txt file, which restores the same way." });
+      } else setNotice({ kind: name === "AbortError" ? "info" : "error", message: name === "AbortError" ? "Sharing canceled." : `Sharing could not finish${name ? ` (${name})` : ""}. Use Download instead.` });
     } finally { setBusy(false); }
   };
   const copy = async () => {
@@ -136,12 +142,9 @@ export function DataMenu({ history, workouts, onImport, manager }: {
           <option value="json">JSON · workout history</option><option value="csv">CSV · spreadsheet</option>
         </select></label>
         {!hasHistory && <p>Save a workout to export your history.</p>}
-        <p>App options open your device’s share sheet. Select the installed app there.</p>
         <button type="button" disabled={!hasHistory || busy} onClick={download}>Download <small>Save to device</small></button>
-        {Object.entries(destinations).map(([key, item]) => <button className="transfer-destination" type="button" key={key} disabled={!hasHistory || busy} onClick={() => void share(key as Destination)}><span className={`destination-mark ${key}`} aria-hidden="true">{item.mark}</span><span>{item.label}</span><small>Share sheet</small></button>)}
-        <div className="export-separator" />
+        {canShareFiles && <button type="button" disabled={!hasHistory || busy} onClick={() => void share()}>Share… <small>Drive, WhatsApp, email & more</small></button>}
         <button type="button" disabled={!hasHistory || busy} onClick={() => void copy()}>Copy to clipboard <small>Backup text</small></button>
-        <button type="button" disabled={!hasHistory || busy} onClick={() => void share()}>More apps… <small>Email, AirDrop & more</small></button>
         {copyFallback && <label className="transfer-paste">Backup to copy<textarea readOnly value={copyFallback} onFocus={(event) => event.currentTarget.select()} /></label>}
         {busy && <p role="status">Preparing export…</p>}
         {notice && panel === "workouts" && <p className={`import-result ${notice.kind}`} role={notice.kind === "error" ? "alert" : "status"}>{notice.message}</p>}

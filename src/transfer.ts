@@ -14,10 +14,18 @@ export function createBackupFile(history: HistoryMap, workouts: CompletedWorkout
   });
 }
 
-// Some share sheets reject JSON files. A text wrapper preserves the full backup.
-export function shareableBackup(file: File, canShare: (data: ShareData) => boolean): File | null {
+// Some share sheets reject JSON files, and desktop Chromium on Windows even reports
+// that it can share them but then refuses ("Permission denied"). A .json.txt text
+// wrapper preserves the full backup and restores the same way.
+export const JSON_AS_TEXT_KEY = "rolling-ppl-share-json-as-text-v1";
+export function prefersTextSharing(userAgent: string, maxTouchPoints = 0, remembered = false) {
+  if (remembered) return true;
+  const mobile = /Android|iPhone|iPad|iPod|Mobile/i.test(userAgent) || (/Macintosh/.test(userAgent) && maxTouchPoints > 1);
+  return !mobile;
+}
+export function shareableBackup(file: File, canShare: (data: ShareData) => boolean, preferText = false): File | null {
   try {
-    if (canShare({ files: [file] })) return file;
+    if (!(preferText && file.type === "application/json") && canShare({ files: [file] })) return file;
     const textFile = new File([file], `${file.name}.txt`, { type: "text/plain" });
     if (canShare({ files: [textFile] })) return textFile;
   } catch { /* Sharing may be blocked by this browser or its permissions policy. */ }
