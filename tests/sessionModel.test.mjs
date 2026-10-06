@@ -3,7 +3,6 @@ import test from "node:test";
 import {
   addWorkoutToHistory,
   completeWorkout,
-  liftMilestones,
   migrateLegacyHistory,
   nextWorkout,
   selectedExerciseSets,
@@ -113,14 +112,3 @@ test("groups legacy exercise history into dated workouts without making it synca
   assert.equal(migrated[0].sync.status, "legacy");
 });
 
-test("reports only improvements after an established lift baseline as milestones", () => {
-  const history = { "Barbell bench press": [
-    { id: "c", savedAt: "2026-08-20T06:00:00.000Z", sets: [{ load: "57.5", reps: "6" }] },
-    { id: "b", savedAt: "2026-08-17T06:00:00.000Z", sets: [{ load: "55", reps: "8" }] },
-    { id: "a", savedAt: "2026-08-12T06:00:00.000Z", sets: [{ load: "55", reps: "6" }] },
-  ] };
-  assert.deepEqual(liftMilestones(history).map(({ kind, load, reps }) => ({ kind, load, reps })), [
-    { kind: "load", load: "57.5", reps: "6" },
-    { kind: "reps", load: "55", reps: "8" },
-  ]);
-});

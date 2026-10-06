@@ -4,8 +4,12 @@ import { chartScale, type ExerciseSeries } from "./progressModel";
 const number = (value: number) => value.toLocaleString(undefined, { maximumFractionDigits: 2 });
 const dateLabel = (date: string) => new Date(date).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
 
-export function TrendChart({ series, unit, emptyTitle, emptyHint, label, showSummary = true }: {
+// Markers star the points at those dates; a target draws a dashed line that the
+// scale always includes, however far it is above the readings.
+export type ChartMarker = { date: string; label: string };
+export function TrendChart({ series, unit, emptyTitle, emptyHint, label, showSummary = true, markers = [], target }: {
   series: ExerciseSeries[]; unit: "kg" | "kg·reps" | "cm"; emptyTitle: string; emptyHint: string; label: string; showSummary?: boolean;
+  markers?: ChartMarker[]; target?: { value: number; label: string };
 }) {
   const container = useRef<HTMLDivElement>(null);
   const gradient = useId();
@@ -22,7 +26,8 @@ export function TrendChart({ series, unit, emptyTitle, emptyHint, label, showSum
   const selected = points.find((point) => point.key === selection) ?? points.reduce<typeof points[number] | undefined>((latest, point) => !latest || point.date > latest.date ? point : latest, undefined);
   const ordered = [...points].sort((a, b) => a.date.localeCompare(b.date));
   const selectedIndex = ordered.findIndex((point) => point.key === selected?.key);
-  const { min, max, ticks } = chartScale(points.map((point) => point.value));
+  const { min, max, ticks } = chartScale([...points.map((point) => point.value), ...(target && points.length ? [target.value] : [])]);
+  const starred = markers.flatMap((marker) => { const point = points.find((item) => item.date === marker.date); return point ? [{ ...marker, point }] : []; });
   const dates = points.map((point) => Date.parse(point.date));
   const first = dates.length ? Math.min(...dates) : 0;
   const last = dates.length ? Math.max(...dates) : 0;
@@ -56,10 +61,15 @@ export function TrendChart({ series, unit, emptyTitle, emptyHint, label, showSum
             <polyline className="trend-line" points={coordinates} strokeDasharray={index > 2 ? "7 4" : undefined} />
           </g>;
         })}
+        {target && <g className="trend-target"><line x1={left} x2={right} y1={yFor(target.value)} y2={yFor(target.value)} /><text x={left + 4} y={yFor(target.value) - 7}>{target.label}</text></g>}
         {selected && <line className="trend-crosshair" x1={xFor(selected.date)} x2={xFor(selected.date)} y1={top} y2={bottom} />}
         {points.map((point) => <g className={`trace-${point.seriesIndex}`} key={point.key}>
           <circle className="trend-dot" cx={xFor(point.date)} cy={yFor(point.value)} r={selected?.key === point.key ? 6 : 3.5} />
-          <circle className="trend-hit" cx={xFor(point.date)} cy={yFor(point.value)} r="13" role="button" tabIndex={0} aria-label={`${point.exercise}, ${dateLabel(point.date)}, ${number(point.value)} ${unit}`} aria-pressed={selected?.key === point.key} onPointerEnter={() => setSelection(point.key)} onClick={() => setSelection(point.key)} onFocus={() => setSelection(point.key)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setSelection(point.key); } }} />
+          <circle className="trend-hit" cx={xFor(point.date)} cy={yFor(point.value)} r="13" role="button" tabIndex={0} aria-label={`${point.exercise}, ${dateLabel(point.date)}, ${number(point.value)} ${unit}${starred.filter((star) => star.point.key === point.key).map((star) => `, reached ${star.label}`).join("")}`} aria-pressed={selected?.key === point.key} onPointerEnter={() => setSelection(point.key)} onClick={() => setSelection(point.key)} onFocus={() => setSelection(point.key)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setSelection(point.key); } }} />
+        </g>)}
+        {starred.map(({ point, label: text }, index) => <g className="trend-star" key={`${point.key}:${text}`} transform={`translate(${xFor(point.date)} ${yFor(point.value)})`} aria-hidden="true">
+          <path d="M0 -9l2.6 5.4 5.9.7-4.4 4 1.2 5.8-5.3-3-5.3 3 1.2-5.8-4.4-4 5.9-.7z" />
+          {starred.findIndex((item) => item.point.key === point.key) === index && <text y="22" x={xFor(point.date) > right - 50 ? 8 : xFor(point.date) < left + 50 ? -8 : 0} textAnchor={xFor(point.date) > right - 50 ? "end" : xFor(point.date) < left + 50 ? "start" : "middle"}>{starred.filter((item) => item.point.key === point.key).map((item) => item.label).join(" · ")} ✓</text>}
         </g>)}
       </svg>
       <div className="trend-inspector"><button type="button" aria-label={`Previous reading in ${label}`} disabled={selectedIndex <= 0} onClick={() => setSelection(ordered[selectedIndex - 1].key)}>‹</button><div className="trend-readout" aria-live="polite"><div><strong>{selected?.exercise}</strong><time>{selected && dateLabel(selected.date)}</time></div><b>{selected && number(selected.value)} <small>{unit}</small></b></div><button type="button" aria-label={`Next reading in ${label}`} disabled={selectedIndex >= ordered.length - 1} onClick={() => setSelection(ordered[selectedIndex + 1].key)}>›</button></div>

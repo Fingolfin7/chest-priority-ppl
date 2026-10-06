@@ -1341,9 +1341,9 @@ footer p {
 }
 
 .progress-support {
-  margin-top: .8rem;
+  margin: .8rem 0;
   display: grid;
-  grid-template-columns: .65fr 1.35fr;
+  grid-template-columns: 1fr;
   gap: .8rem;
 }
 
@@ -1403,62 +1403,13 @@ footer p {
   font-size: .72rem;
 }
 
-.milestones,
 .lift-progress {
   margin-top: 1rem;
 }
 
-.progress-support .milestones {
-  min-width: 0;
-  margin: 0;
-  padding: 1rem;
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: 11px;
-}
-
-.milestones h3,
 .lift-progress h3 {
   margin: 0 0 .7rem;
   font-size: 1rem;
-}
-
-.milestones>div {
-  display: flex;
-  gap: .5rem;
-  overflow: auto;
-  padding-bottom: .2rem;
-}
-
-.milestones article {
-  min-width: 170px;
-  padding: .7rem;
-  display: grid;
-  gap: .2rem;
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-top: 3px solid var(--push);
-  border-radius: 8px;
-}
-
-.milestones article>span {
-  color: var(--push);
-  font: 800 .52rem/1 var(--mono);
-  text-transform: uppercase;
-}
-
-.milestones article strong {
-  font-size: .72rem;
-}
-
-.milestones article p {
-  margin: 0;
-  font: 700 .68rem/1.2 var(--mono);
-}
-
-.milestones article time {
-  color: var(--muted);
-  font-size: .58rem;
 }
 
 .lift-grid summary {
@@ -2530,6 +2481,35 @@ footer p {
   stroke-width: 2;
 }
 
+.trend-star path {
+  fill: var(--accent-5);
+  stroke: var(--surface);
+  stroke-width: 1.2;
+}
+
+.trend-star text {
+  fill: var(--accent-5);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.trend-target line {
+  stroke: var(--accent-5);
+  stroke-width: 1.5;
+  stroke-dasharray: 5 4;
+}
+
+.trend-target text {
+  fill: var(--accent-5);
+  font-size: 10.5px;
+  font-weight: 700;
+}
+
+.trend-star,
+.trend-target {
+  pointer-events: none;
+}
+
 .trend-crosshair {
   stroke: var(--muted);
   stroke-dasharray: 3 4;
@@ -2960,10 +2940,6 @@ footer {
   text-transform: none;
 }
 
-.progress-support .milestones {
-  margin-bottom: 12px;
-}
-
 @media (max-width: 850px) {
   .app-header .header-actions {
     grid-column: 2;
@@ -3150,7 +3126,6 @@ footer {
 .finish-summary span,
 .frequency-card > span,
 .frequency-card > div span,
-.milestones article > span,
 .lift-grid summary small,
 .export-panel > span,
 .export-menu > summary,
@@ -3352,40 +3327,59 @@ footer {
   white-space: nowrap;
 }
 
-.summary-records {
+.summary-goals {
   margin: 0;
   padding: 0;
   display: grid;
-  gap: 6px;
+  gap: 8px;
   list-style: none;
 }
 
-.summary-records li {
-  padding: 8px 10px;
+.summary-goals li {
+  padding: 11px 12px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+
+.summary-goals li.final {
+  border-color: color-mix(in srgb, var(--accent-5) 55%, transparent);
+  background: color-mix(in srgb, var(--accent-5) 12%, var(--surface));
+}
+
+.summary-goals svg {
+  flex: none;
+}
+
+.summary-goals div {
+  min-width: 0;
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: baseline;
-  gap: 10px;
-  color: var(--push-soft-ink);
-  background: var(--push-soft);
-  border-radius: 8px;
-  font-size: .82rem;
+  gap: 2px;
 }
 
-.summary-records span {
-  font-size: .74rem;
-  font-weight: 700;
+.summary-goals span {
+  color: var(--accent-5);
+  font-size: .66rem;
+  font-weight: 750;
+  letter-spacing: .06em;
+  text-transform: uppercase;
 }
 
-.summary-records strong {
-  overflow: hidden;
-  font-weight: 600;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.summary-goals strong {
+  font-size: 1rem;
 }
 
-.summary-records b {
-  white-space: nowrap;
+.summary-goals small {
+  color: var(--muted);
+  font-size: .76rem;
+}
+
+.summary-goals button {
+  width: 100%;
+  margin-top: 4px;
 }
 
 .summary-sync {

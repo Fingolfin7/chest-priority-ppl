@@ -190,43 +190,6 @@ export function sessionsInLastDays(sessions: CompletedWorkout[], days: number, n
   return sessions.filter((session) => Date.parse(session.endedAt) >= threshold);
 }
 
-export type LiftMilestone = {
-  exercise: string;
-  date: string;
-  kind: "load" | "reps";
-  load: string;
-  reps: string;
-};
-
-export function liftMilestones(history: HistoryMap): LiftMilestone[] {
-  const milestones: LiftMilestone[] = [];
-  Object.entries(history).forEach(([exercise, sessions]) => {
-    let seen = false;
-    let bestNumericLoad = -Infinity;
-    const bestRepsByLoad = new Map<string, number>();
-    [...sessions].sort((left, right) => left.savedAt.localeCompare(right.savedAt)).forEach((session) => {
-      const candidates = session.sets.map((set) => ({ ...set, numericLoad: Number(set.load) }))
-        .sort((left, right) => {
-          const leftLoad = Number.isFinite(left.numericLoad) ? left.numericLoad : -Infinity;
-          const rightLoad = Number.isFinite(right.numericLoad) ? right.numericLoad : -Infinity;
-          return rightLoad - leftLoad || Number(right.reps) - Number(left.reps);
-        });
-      const best = candidates[0];
-      if (!best) return;
-      const numeric = Number.isFinite(best.numericLoad) && best.numericLoad > 0;
-      const loadKey = numeric ? String(best.numericLoad) : (best.load.trim().toLowerCase() || "bw");
-      const reps = Number(best.reps);
-      const previousReps = bestRepsByLoad.get(loadKey) ?? -Infinity;
-      if (seen && numeric && best.numericLoad > bestNumericLoad) milestones.push({ exercise, date: session.savedAt, kind: "load", load: best.load, reps: best.reps });
-      else if (seen && reps > previousReps) milestones.push({ exercise, date: session.savedAt, kind: "reps", load: best.load || "BW", reps: best.reps });
-      if (numeric) bestNumericLoad = Math.max(bestNumericLoad, best.numericLoad);
-      bestRepsByLoad.set(loadKey, Math.max(previousReps, reps));
-      seen = true;
-    });
-  });
-  return milestones.sort((left, right) => right.date.localeCompare(left.date));
-}
-
 export function migrateLegacyHistory(history: HistoryMap, exerciseWorkouts: Record<string, WorkoutKey>): CompletedWorkout[] {
   const grouped = new Map<string, CompletedWorkout>();
   Object.entries(history).forEach(([name, savedSessions]) => {

@@ -12,10 +12,10 @@ A phone-first, chest-prioritized rolling Push/Pull/Legs workout tracker. The seq
 - Crash-safe workout drafts and completed sessions with optional peer-to-peer browser sync
 - Previous-session context, per-set target placeholders, and double-progression suggestions
 - Edit or delete past sessions (times, bodyweight, notes, exercises, and sets) from Sessions
-- A post-workout summary with sets, volume and new load/rep records
+- A post-workout summary with sets, volume and any lift-goal steps or goals reached
 - Optional bodyweight and session notes
 - Responsive bodyweight, recorded-volume, and working-weight plots with readable axes, selectable points, previous/next reading controls, and accessible data tables
-- Session frequency, recent lift history, and genuine load/rep milestones
+- Session frequency, recent lift history, and lift goals such as bench 100 kg × 5
 - Automatic Autumn sync when a workout is saved, with a clear synced/failed status and Try again
 - Workout-history export and restore in structured JSON or spreadsheet-ready CSV, including workout timing, bodyweight, and notes
 - Light and dark themes with a remembered toggle
@@ -31,11 +31,19 @@ A day counts as logged once anything is tapped, and averages use logged days onl
 
 Food records sync between paired devices and are included in complete backups. Each day is one record; the latest saved edit wins.
 
+## Lift goals
+
+**Progress → Lifts** holds up to three active lift goals, each a weight and rep target such as bench 100 kg × 5, with optional steps at lighter weights and the same reps. A step or goal counts as reached only when a logged set matches or beats both numbers; estimates never award one. Reached steps are starred on the working-load chart, a dashed line marks the next one, and the workout summary shows a banner when a session reaches a step or goal.
+
+Between those, progress uses an estimated max (Epley, from sets of up to 12 reps or the goal's reps if higher) so sets at other rep counts still count. The bar runs from your estimate when the goal was set to the goal. "Now" is the best estimate in the four weeks up to your latest session for that lift. Timing appears only with at least four sessions over three weeks of rising estimates in the last eight weeks, as a widened month range. Goals sync between paired devices and are included in complete backups; the latest save or deletion wins.
+
 ## Body progress, photos, and training phases
 
 The Progress overview connects your goal, weight trend, measurements, photos and training phase. Record independent weigh-ins without starting a workout. Each local calendar day contributes one reading; an independent entry takes precedence over workout bodyweight. Seven-day averages count only recorded days.
 
 Set a goal weight and optionally select suggested intermediate milestones. First reached and sustained are separate achievements. Sustained means a trailing seven-day average at or above the target with at least three recorded days. Gaps are allowed; missing readings are never invented.
+
+The Body overview prompts a photo check-in two weeks after your latest photos, and again when the trend sustains a weight milestone unless a photo already falls in that week. Skip clears a prompt and restarts the schedule. Choose every 1 to 4 weeks, or off, in Photos; the setting stays in this browser like the photos.
 
 Short-term outlooks extend recent bodyweight, top working weight and tape trends over 2, 3 or 4 weeks. They use median pairwise slopes and a widening residual-based scenario range, not a calibrated probability or a target. Weight needs 6 recorded days spanning 14 days; lifts need 4 sessions spanning 14 days; tape needs 4 recorded days spanning 21 days. Old, insufficient or implausibly changing data show an explanation instead of an estimate. Working-weight outlooks preserve the entered load convention, show reps for context, and do not estimate maximum strength.
 

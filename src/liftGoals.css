@@ -1,0 +1,81 @@
+.lift-goals { display:grid; gap:10px; margin-top:.8rem; min-width:0; }
+.lift-goals-heading { display:flex; align-items:center; justify-content:space-between; gap:1rem; margin:0 2px; }
+.lift-goals-heading h3 { margin:0; font-size:1rem; }
+.lift-goals button { cursor:pointer; font:600 .82rem/1.3 var(--sans); }
+.lift-goals button:disabled { opacity:.55; cursor:default; }
+.lift-goal-link { min-height:40px; padding:.4rem .2rem; background:none; border:0; color:var(--push-soft-ink); white-space:nowrap; }
+.lift-goal-primary { min-height:42px; padding:.6rem .9rem; background:var(--push); border:1px solid var(--push); border-radius:7px; color:var(--action-ink); }
+.lift-goal-card { min-width:0; padding:16px; background:var(--surface); border:1px solid var(--line); border-radius:12px; }
+.lift-goal-eyebrow { color:var(--muted); font-size:.66rem; font-weight:750; letter-spacing:.06em; text-transform:uppercase; }
+.lift-goal-head { display:flex; align-items:flex-start; justify-content:space-between; gap:10px; }
+.lift-goal-head .lift-goal-link { min-height:0; padding:.1rem 0; }
+.lift-goal-head h4 { margin:3px 0 0; font-size:1.6rem; line-height:1.15; letter-spacing:-.03em; }
+.lift-goal-head h4 small { color:var(--muted); font-size:.95rem; font-weight:500; letter-spacing:0; }
+.lift-goal-bar { position:relative; height:10px; margin:16px 0 6px; background:var(--soft); border-radius:99px; }
+.lift-goal-bar i { position:absolute; inset:0 auto 0 0; border-radius:99px; background:var(--push); }
+.lift-goal-bar em { position:absolute; top:-4px; width:2px; height:18px; background:var(--muted); opacity:.55; }
+.lift-goal-legend { display:flex; justify-content:space-between; gap:10px; color:var(--muted); font-size:.72rem; }
+.lift-goal-legend b { color:var(--ink); }
+.lift-goal-now { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; margin:14px 0; }
+.lift-goal-now div { display:grid; gap:2px; padding:10px; background:var(--soft-2); border-radius:9px; }
+.lift-goal-now div.goal { background:var(--push-soft); }
+.lift-goal-now strong { font-size:1.15rem; }
+.lift-goal-now small { color:var(--muted); font-size:.72rem; }
+.lift-goal-empty-note { margin:12px 0; color:var(--muted); font-size:.8rem; }
+.lift-goal-ladder { display:flex; margin:8px 0 2px; padding:0; }
+.lift-goal-ladder li { position:relative; flex:1; padding-top:22px; color:var(--muted); font-size:.7rem; list-style:none; text-align:center; }
+.lift-goal-ladder li::before { content:""; position:absolute; top:7px; right:0; left:0; height:2px; background:var(--line); }
+.lift-goal-ladder li:first-child::before { left:50%; }
+.lift-goal-ladder li:last-child::before { right:50%; }
+.lift-goal-ladder li:only-child::before { display:none; }
+.lift-goal-ladder li::after { content:""; position:absolute; top:1px; left:calc(50% - 7px); width:14px; height:14px; box-sizing:border-box; background:var(--surface); border:2px solid var(--line); border-radius:50%; }
+.lift-goal-ladder li.hit { color:var(--push-soft-ink); }
+.lift-goal-ladder li.hit::before { background:var(--push); }
+.lift-goal-ladder li.hit::after { content:"★"; display:grid; place-items:center; color:var(--surface); background:var(--accent-5); border-color:var(--accent-5); font-size:9px; line-height:1; }
+.lift-goal-ladder li.next::after { border-color:var(--push); }
+.lift-goal-ladder li.goal::after { border-color:var(--accent-5); }
+.lift-goal-ladder b { display:block; color:var(--ink); font-size:.8rem; }
+.lift-goal-eta { margin:12px 0 0; padding-top:11px; border-top:1px solid var(--line); color:var(--muted); font-size:.76rem; line-height:1.5; }
+.lift-goal-eta strong { color:var(--ink); }
+.lift-goal-row { display:flex; align-items:center; gap:12px; width:100%; min-height:64px; padding:12px 14px; color:var(--ink); text-align:left; background:var(--surface); border:1px solid var(--line); border-radius:12px; }
+.lift-goal-row span { display:grid; flex:1; gap:2px; min-width:0; }
+.lift-goal-row strong { font-size:.88rem; }
+.lift-goal-row small { color:var(--muted); font-size:.74rem; font-weight:500; }
+.lift-goal-row b { color:var(--muted); font-weight:500; }
+.lift-goal-row.reached { border-color:color-mix(in srgb,var(--accent-5) 45%,var(--line)); }
+.lift-goal-row.reached:disabled { opacity:1; }
+.lift-goal-ring { flex:none; }
+.lift-goal-ring circle { fill:none; stroke:var(--soft); stroke-width:5; }
+.lift-goal-ring circle.fill { stroke:var(--push); stroke-linecap:round; }
+.lift-goal-ring.reached circle { stroke:var(--accent-5); stroke-width:4; }
+.lift-goal-ring.reached path { fill:none; stroke:var(--accent-5); stroke-width:3; stroke-linecap:round; stroke-linejoin:round; }
+.lift-goal-intro { display:grid; gap:12px; }
+.lift-goal-intro p { margin:0; color:var(--muted); font-size:.85rem; line-height:1.5; }
+.lift-goal-intro strong { color:var(--ink); }
+.lift-goal-intro button { justify-self:start; }
+.lift-goal-editor { display:grid; gap:10px; }
+.lift-goal-editor h4 { margin:0 0 2px; font-size:1rem; }
+.lift-goal-editor label { display:grid; gap:5px; font-size:.78rem; font-weight:650; }
+.lift-goal-editor input,.lift-goal-editor select { width:100%; min-width:0; min-height:42px; padding:.55rem .7rem; color:var(--ink); background:var(--input); border:1px solid var(--input-line); border-radius:7px; font:400 .9rem/1.3 var(--sans); }
+.lift-goal-pair { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
+.lift-goal-insight { display:grid; gap:6px; padding:10px 11px; color:var(--muted); background:var(--soft-2); border:1px solid var(--line); border-radius:9px; font-size:.78rem; line-height:1.5; }
+.lift-goal-insight p { margin:0; }
+.lift-goal-insight strong { color:var(--ink); }
+.lift-goal-steps { margin:0; padding:0; border:0; }
+.lift-goal-steps legend { padding:0; font-size:.78rem; font-weight:650; }
+.lift-goal-steps p { margin:.2rem 0 .5rem; color:var(--muted); font-size:.74rem; }
+.lift-goal-steps div { display:flex; flex-wrap:wrap; gap:6px; }
+.lift-goal-steps button { min-height:36px; padding:.35rem .7rem; color:var(--ink); background:var(--soft); border:1px solid var(--line); border-radius:7px; }
+.lift-goal-steps button[aria-pressed=true] { color:var(--push-soft-ink); background:var(--push-soft); border-color:var(--push); }
+.lift-goal-actions { display:flex; flex-wrap:wrap; gap:8px; }
+.lift-goal-actions button:not(.lift-goal-primary) { min-height:42px; padding:.6rem .9rem; color:var(--ink); background:var(--soft); border:1px solid var(--line); border-radius:7px; }
+.lift-goal-actions .lift-goal-delete { margin-left:auto; color:var(--danger); }
+.lift-goal-error { margin:0; color:var(--danger); font-size:.8rem; }
+.lift-goal-history { padding:0 2px; color:var(--muted); font-size:.78rem; }
+.lift-goal-history summary { min-height:36px; display:flex; align-items:center; cursor:pointer; }
+.lift-goal-history ul { display:grid; gap:6px; margin:4px 0 0; padding:0; list-style:none; }
+.lift-goal-history li { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:8px 10px; background:var(--surface); border:1px solid var(--line); border-radius:9px; }
+.lift-goal-history li span { display:grid; gap:2px; }
+.lift-goal-history li strong { color:var(--ink); font-size:.82rem; }
+.lift-goal-history li button { min-height:36px; padding:.3rem .6rem; color:var(--muted); background:none; border:0; }
+.lift-goal-tag { display:inline-block; margin-top:4px; padding:2px 7px; color:var(--push-soft-ink); background:var(--push-soft); border-radius:99px; font-size:.66rem; font-style:normal; font-weight:700; }
