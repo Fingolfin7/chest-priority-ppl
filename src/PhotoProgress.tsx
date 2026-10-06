@@ -14,6 +14,8 @@ import {
 import "./photoProgress.css";
 import { CloudPhotoBackupPanel, useCloudPhotoBackup } from "./CloudPhotoBackupPanel";
 import { cloudPhotoStatus, removePhotoWithCloudChoice } from "./cloudPhotoBackup";
+import { nextScheduledCheckIn } from "./photoCheckInModel";
+import { usePhotoCheckInPreferences } from "./usePhotoCheckIns";
 
 const VIEWS: ProgressPhotoView[] = ["front", "side", "back"];
 const ACCEPTED_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
@@ -63,6 +65,7 @@ function BlobImage({ blob, alt, loading }: { blob: Blob; alt: string; loading?: 
 
 export function PhotoProgress() {
   const cloudBackup = useCloudPhotoBackup();
+  const [checkIns, setCheckIns] = usePhotoCheckInPreferences();
   const [photos, setPhotos] = useState<ProgressPhoto[]>([]);
   const [loading, setLoading] = useState(true);
   const [storageError, setStorageError] = useState("");
@@ -218,6 +221,7 @@ export function PhotoProgress() {
     [photos, filterView],
   );
   const checkInCount = useMemo(() => new Set(photos.map((photo) => photo.date)).size, [photos]);
+  const nextCheckIn = nextScheduledCheckIn(photos.map((photo) => photo.date), checkIns);
   const viewCounts = useMemo(() => Object.fromEntries(VIEWS.map((view) => [view, photos.filter((photo) => photo.view === view).length])) as Record<ProgressPhotoView, number>, [photos]);
   const canCompare = VIEWS.some((view) => viewCounts[view] >= 2);
   const backupPhotoCount = photos.filter((photo) =>
@@ -428,6 +432,10 @@ export function PhotoProgress() {
         <label className="secondary-action photo-file-button">Add from photos<input type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => void addFromFile(event)} /></label>
       </div>
       <small>Imports are copied here; originals stay in your gallery. Camera captures are not added to your gallery.</small>
+      <div className="photo-check-in-schedule">
+        <label>Check-in reminders<select value={checkIns.intervalDays} onChange={(event) => setCheckIns({ ...checkIns, intervalDays: Number(event.target.value) })}><option value={7}>Every week</option><option value={14}>Every 2 weeks</option><option value={21}>Every 3 weeks</option><option value={28}>Every 4 weeks</option><option value={0}>Off</option></select></label>
+        <small>{!checkIns.intervalDays ? "Body won't remind you about photos." : nextCheckIn ? `Next check-in due ${displayDate(nextCheckIn)}. Sustained weight milestones add one, too.` : "Reminders start after your first photos. Sustained weight milestones add a check-in, too."}</small>
+      </div>
     </fieldset>
 
     {cameraStream && <div className="photo-camera-card">

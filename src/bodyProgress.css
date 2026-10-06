@@ -160,3 +160,10 @@
 .phase-progress-stats strong { overflow-wrap:anywhere; }
 
 .phase-progress-stats .phase-weight-empty { font-size:1rem; line-height:1.4; }
+.photo-check-in-due { display:grid; gap:.7rem; margin:.7rem 0; padding:.8rem .9rem; border:1px solid var(--push); border-radius:10px; background:var(--push-soft); }
+.photo-check-in-due strong { color:var(--push-soft-ink); font-size:.9rem; }
+.photo-check-in-due p { margin:.25rem 0 0; color:var(--ink); font-size:.78rem; line-height:1.5; }
+.photo-check-in-due>div:last-child { display:flex; gap:.5rem; }
+.photo-check-in-due button { min-height:40px; }
+.photo-check-in-due button.body-primary { flex:1; }
+.photo-check-in-skipped { margin:.6rem 0; color:var(--muted); font-size:.75rem; }
