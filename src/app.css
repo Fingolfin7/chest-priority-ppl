@@ -2510,6 +2510,15 @@ footer p {
   pointer-events: none;
 }
 
+/* A halo in the card colour keeps labels readable where they cross the line. */
+.trend-star text,
+.trend-target text {
+  paint-order: stroke;
+  stroke: var(--surface);
+  stroke-width: 3px;
+  stroke-linejoin: round;
+}
+
 .trend-crosshair {
   stroke: var(--muted);
   stroke-dasharray: 3 4;

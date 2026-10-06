@@ -3,7 +3,7 @@ import type { CompletedWorkout } from "./sessionModel";
 import { TrendChart } from "./TrendChart";
 import {
   BODY_PROGRESS_EVENT, MEASUREMENT_KEYS, checkEntryDate, combineWeightReadings, emptyBodyProgress,
-  exportBodyProgress, localDay, parseBodyNumber, parseBodyProgress, saveBodyProgress, recentWeightAverages,
+  exportBodyProgress, localDay, parseBodyNumber, parseBodyProgress, saveBodyProgress, recentWeightAverages, weightGoal, weightMilestones,
   type BodyMeasurement, type BodyProgressData, type MeasurementKey, type WeighIn,
 } from "./bodyProgressModel";
 import type { TrainingPhase } from './planModel';
@@ -60,6 +60,12 @@ export function BodyProgress({ sessions, history, phase, phases, onPhotos, onPla
   const shownWeights = readings.filter((reading) => reading.date >= earliest);
   const shownMeasurements = data.measurements.filter((reading) => reading.date >= earliest);
   const averages = recentWeightAverages(readings, today);
+  // Like lift goals: stars where the 7-day average sustained a milestone, and a
+  // dashed line at the next one, or the goal itself once it is the last left.
+  const milestones = weightMilestones(readings, data.goal);
+  const finalTarget = weightGoal(readings, data.goal).target;
+  const nextMilestone = milestones.find((item) => !item.sustained);
+  const milestoneStars = milestones.flatMap((item) => item.sustained ? [{ date: item.sustained, label: `${number(item.target)} kg` }] : []);
   async function persist(next: BodyProgressData, success: string, entryDate?: string): Promise<boolean> {
     setBusy(true); setError(""); setMessage("");
     try { if (entryDate !== undefined) checkEntryDate(entryDate); const valid = parseBodyProgress(next); await saveBodyProgress(valid); setData(await exportBodyProgress()); setMessage(success); return true; }
@@ -96,7 +102,7 @@ export function BodyProgress({ sessions, history, phase, phases, onPhotos, onPla
       <div className="journey-trend-heading"><h3>{page === "overview" ? "Bodyweight" : "Weight trend"}</h3>{page === "overview" ? <button type="button" className="quiet-action" disabled={!ready || busy} onClick={() => {setWeightId(null);setWeightForm({date:localDay(),kg:"",note:""});setWeightOpen(true);navigate("weight");}}>+ Weigh-in</button> : <label className="body-range">Show trends<select value={range} onChange={event => setRange(event.target.value)}><option value="all">All time</option><option value="90">Last 90 days</option><option value="30">Last 30 days</option></select></label>}</div>
       {page === "weight" && weightOpen && <form className="body-entry-form" onSubmit={(event) => void saveWeight(event)}><h4>{weightId ? "Edit weigh-in" : "Independent weigh-in"}</h4><div className="body-input-grid"><label>Date<input type="date" value={weightForm.date} max={localDay()} required onChange={(event) => setWeightForm({ ...weightForm, date: event.target.value })} /></label><label>Weight (kg)<input ref={weightField} type="text" inputMode="decimal" value={weightForm.kg} placeholder="e.g. 66.2" required onChange={(event) => setWeightForm({ ...weightForm, kg: event.target.value })} /></label></div><label>Note (optional)<input type="text" maxLength={1000} value={weightForm.note} onChange={(event) => setWeightForm({ ...weightForm, note: event.target.value })} /></label><p>For comparable readings, use the same scale and time of day, ideally after the bathroom and before breakfast.</p><div className="body-actions"><button className="body-primary" disabled={busy} type="submit">{busy ? "Saving..." : "Save weigh-in"}</button><button type="button" disabled={busy} onClick={() => { setWeightOpen(false); navigate("overview"); }}>Cancel</button></div></form>}
       <div className="body-averages">{([{ label: "Last 7 days", data: averages.recent }, { label: "Previous 7 days", data: averages.previous }]).map(({label, data}) => <div key={label}><span>{label}</span><strong>{data.value === null ? "No readings" : `${number(data.value)} kg average`}</strong><small>{data.count} recorded day{data.count === 1 ? "" : "s"}</small></div>)}</div>
-      <TrendChart series={shownWeights.length ? [{ exercise: "Bodyweight", points: shownWeights }] : []} unit="kg" emptyTitle="No weight readings in this range" emptyHint="Log a weigh-in here or save bodyweight with a workout." label="Bodyweight trend" showSummary={false} />
+      <TrendChart series={shownWeights.length ? [{ exercise: "Bodyweight", points: shownWeights }] : []} unit="kg" emptyTitle="No weight readings in this range" emptyHint="Log a weigh-in here or save bodyweight with a workout." label="Bodyweight trend" showSummary={false} markers={milestoneStars} target={nextMilestone ? { value: nextMilestone.target, label: `${nextMilestone.target === finalTarget ? "Goal" : "Next milestone"} · ${number(nextMilestone.target)} kg` } : undefined} />
       <details className="body-entry-list"><summary>Manage independent weigh-ins ({data.weighIns.length})</summary>{!data.weighIns.length && <p>No independent weigh-ins yet. Workout readings can be edited in workout history.</p>}{[...data.weighIns].sort((a, b) => b.date.localeCompare(a.date) || b.updatedAt.localeCompare(a.updatedAt)).map((entry) => <div className="body-entry" key={entry.id}><div><strong>{number(entry.kg)} kg</strong><time>{displayDate(entry.date)}</time>{entry.note && <p>{entry.note}</p>}</div><div className="body-entry-actions"><button type="button" disabled={busy} onClick={() => { setWeightId(entry.id); setWeightForm({ date: entry.date, kg: String(entry.kg), note: entry.note }); setWeightOpen(true); navigate("weight"); }}>Edit</button>{deleteControls(entry.id, "weight")}</div></div>)}</details>
     </article>}
     {page === "overview" && <GoalOverview data={data} readings={readings} ready={ready} busy={busy} onSave={persist} onWeight={() => {setWeightId(null);setWeightForm({date:localDay(),kg:"",note:""});setWeightOpen(true);navigate("weight");}} onMeasure={() => {setMeasureId(null);setMeasureForm(blankMeasurement());setMeasureOpen(true);navigate("measurements");}} onPhotos={onPhotos} />}

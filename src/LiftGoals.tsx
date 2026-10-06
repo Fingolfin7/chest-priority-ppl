@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import type { HistoryMap } from "./historyMigration";
 import type { TrainingPhase } from "./planModel";
 import { availableChartExercises } from "./progressModel";
@@ -14,6 +14,8 @@ const approx = (value: number) => kg(Math.round(value * 2) / 2);
 const day = (value: string) => new Date(value).toLocaleDateString(undefined, { day: "numeric", month: "short" });
 const parse = (value: string) => Number(value.trim().replace(",", "."));
 const RECENT_REACHED_DAYS = 30;
+// Set by the workout summary so "Set your next goal" lands on an open section.
+export const OPEN_LIFT_GOALS_KEY = "rolling-ppl-open-lift-goals";
 
 function month(value: string) {
   const date = new Date(value);
@@ -102,6 +104,13 @@ export function LiftGoals({ data, history, phase, selected, onChange, onSelectLi
   const [draft, setDraft] = useState<Draft | null>(null);
   const [error, setError] = useState("");
   const [now] = useState(Date.now);
+  const [requested] = useState(() => sessionStorage.getItem(OPEN_LIFT_GOALS_KEY) === "1");
+  const [expanded, setExpanded] = useState(requested);
+  const section = useRef<HTMLDetailsElement>(null);
+  useEffect(() => {
+    sessionStorage.removeItem(OPEN_LIFT_GOALS_KEY);
+    if (requested) section.current?.scrollIntoView({ block: "start" });
+  }, [requested]);
   const goals = (data?.goals ?? []).filter((goal) => !goal.deleted);
   const withProgress = goals.map((goal) => ({ goal, progress: liftGoalProgress(goal, history) }));
   const active = withProgress.filter(({ progress }) => !progress.reached).sort((a, b) => b.goal.updatedAt.localeCompare(a.goal.updatedAt));
@@ -129,8 +138,11 @@ export function LiftGoals({ data, history, phase, selected, onChange, onSelectLi
     const step = goal.load < 40 ? 2.5 : 5;
     open({ exercise: goal.exercise, load: String(goal.load + step), reps: String(goal.reps), steps: null });
   }
-  return <section className="lift-goals" aria-labelledby="lift-goals-title">
-    <div className="lift-goals-heading"><h3 id="lift-goals-title">Lift goals</h3>{!draft && <button type="button" className="lift-goal-link" disabled={full} title={full ? `Up to ${MAX_ACTIVE_LIFT_GOALS} goals at a time` : undefined} onClick={() => open({ exercise: startingLift, load: "", reps: "5", steps: null })}>{full ? `${MAX_ACTIVE_LIFT_GOALS} goals max` : "+ Add goal"}</button>}</div>
+  const glance = featured ? `${featured.goal.exercise} · ${kg(featured.goal.load)} × ${featured.goal.reps} · ${Math.round((featured.progress.fraction ?? 0) * 100)}%${active.length > 1 ? ` · +${active.length - 1} more` : ""}` : recent.length ? `${recent[0].goal.exercise} goal reached` : "Set a target like bench 100 kg × 5";
+  return <details className="lift-goals lift-collapsible" ref={section} open={expanded} onToggle={(event) => setExpanded(event.currentTarget.open)}>
+    <summary><span><h3>Lift goals</h3><small>{glance}</small></span></summary>
+    <div className="lift-collapsible-body">
+    {goals.length > 0 && <div className="lift-goals-heading">{!draft && <button type="button" className="lift-goal-link" disabled={full} title={full ? `Up to ${MAX_ACTIVE_LIFT_GOALS} goals at a time` : undefined} onClick={() => open({ exercise: startingLift, load: "", reps: "5", steps: null })}>{full ? `${MAX_ACTIVE_LIFT_GOALS} goals max` : "+ Add goal"}</button>}</div>}
     {draft && <GoalEditor draft={draft} data={data} history={history} phase={phase} exercises={exercises} onDraft={setDraft} onSave={save} onCancel={() => setDraft(null)} error={error}
       onDelete={draft.id ? () => { onChange(deleteLiftGoal(data!, draft.id!)); setDraft(null); } : undefined} />}
     {!draft && !goals.length && <div className="lift-goal-card lift-goal-intro"><p>Set a target like <strong>bench 100 kg × 5</strong>. Steps you reach along the way are starred on the lift chart.</p><button type="button" className="lift-goal-primary" onClick={() => open({ exercise: startingLift, load: "", reps: "5", steps: null })}>Set a lift goal</button></div>}
@@ -142,5 +154,6 @@ export function LiftGoals({ data, history, phase, selected, onChange, onSelectLi
       <Ring fraction={1} reached /><span><strong>{goal.exercise} · {kg(goal.load)} kg × {goal.reps}</strong><small>Reached {day(progress.reached!)}{!full && !taken.has(goal.exercise) ? " · set your next goal?" : ""}</small></span><b aria-hidden="true">›</b>
     </button>)}
     {reached.length > 0 && <details className="lift-goal-history"><summary>Reached goals ({reached.length})</summary><ul>{reached.map(({ goal, progress }) => <li key={goal.id}><span><strong>{goal.exercise} · {kg(goal.load)} kg × {goal.reps}</strong><small>Set {day(goal.createdAt)} · reached {day(progress.reached!)}</small></span><button type="button" onClick={() => onChange(deleteLiftGoal(data!, goal.id))}>Remove</button></li>)}</ul></details>}
-  </section>;
+    </div>
+  </details>;
 }
