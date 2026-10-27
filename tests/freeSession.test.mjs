@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import * as A from '@automerge/automerge';
 import { defaultPlanState, programPreset } from '../src/defaultPlan.ts';
-import { createFreeSession, freeSessionCatalog, addFreeSessionExercise } from '../src/freeSession.ts';
+import { createFreeSession, freeSessionCatalog, addFreeSessionExercise, addWorkoutExercise } from '../src/freeSession.ts';
 import { validateWorkoutTraining, trainingForWorkout, nextWorkoutForPhase } from '../src/planModel.ts';
 import { completeWorkout, addWorkoutToHistory, workoutSummary } from '../src/sessionModel.ts';
 import { nextStep, setTarget } from '../src/progression.ts';
@@ -92,4 +92,24 @@ test('free sessions use shared targets, update main-programme history, and leave
 test('free session IDs avoid collisions with custom programme workouts', () => {
   const custom = { ...phase, sequence: ['free-session'], workouts: { 'free-session': phase.workouts.push } };
   assert.equal(createFreeSession(custom, startedAt, 'collision').workout, 'free-session-free');
+});
+
+test('extra exercise belongs only to the current programmed workout and is recorded', () => {
+  const training = trainingForWorkout(phase, 'legs');
+  const original = structuredClone(phase);
+  const active = { id: 'legs-extra', workout: 'legs', startedAt, training };
+  const added = addWorkoutExercise(active, bench, training);
+  assert.equal(active.training.exercises.length, training.exercises.length);
+  assert.deepEqual(phase, original);
+  assert.equal(added.training.exercises.at(-1).name, bench.name);
+  assert.equal(added.training.exercises.at(-1).priority, 'optional');
+  assert.equal(addWorkoutExercise(added, { ...bench, name: bench.name.toUpperCase() }, training), added);
+  const alternative = training.exercises.find((exercise) => exercise.alternatives)?.alternatives[0];
+  if (alternative) assert.equal(addWorkoutExercise(added, { ...bench, name: alternative }, training), added);
+  const restored = projectSyncDoc(A.load(A.save(createSyncDoc({ ...emptySyncSnapshot(), activeWorkout: added })))).activeWorkout;
+  const session = completeWorkout({ active: restored, definitions: [restored.training.exercises.at(-1)], drafts: { [bench.name]: [{ load: '30', reps: '10' }] }, bodyweight: '', note: '', endedAt }).session;
+  assert.equal(session.exercises[0].name, bench.name);
+  assert.equal(addWorkoutToHistory({}, session)[bench.name][0].sets[0].reps, '10');
+  assert.equal(nextWorkoutForPhase(session.workout, session.training, phase, 'legs'), 'push');
+  assert.equal(trainingForWorkout(phase, 'legs').exercises.some((exercise) => exercise.name === bench.name), false);
 });

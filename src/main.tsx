@@ -31,8 +31,9 @@ import { Nutrition } from "./Nutrition";
 import { PhotoProgress } from "./PhotoProgress";
 import { PlanPanel, SessionPlanEditor } from "./PlanPanel";
 import { currentPhase, trainingForWorkout, normalizePlanState, phaseSequence, phaseProgramName, phaseProgramId, nextWorkoutForPhase, PLAN_STORAGE_KEY, type TrainingPhase, type PlanExercise, type PlanWorkouts } from "./planModel";
-import { createFreeSession, freeSessionCatalog, addFreeSessionExercise } from "./freeSession";
+import { createFreeSession, freeSessionCatalog, addFreeSessionExercise, addWorkoutExercise } from "./freeSession";
 import { FreeSessionPicker } from "./FreeSessionPicker";
+import { ExercisePicker } from "./ExercisePicker";
 import { ExerciseImages } from "./ExerciseImages";
 import { ExpandableDescription } from "./ExpandableDescription";
 import { recentExerciseNames, rememberedExercises } from "./exerciseLibrary";
@@ -331,6 +332,7 @@ function App({ manager }: { manager: PeerSyncManager }) {
   const [lightbox, setLightbox] = useState<LightboxImage | null>(null);
   const [autumnOpen, setAutumnOpen] = useState(false);
   const [adjusting, setAdjusting] = useState(false);
+  const [addingExercise, setAddingExercise] = useState(false);
   const [finishing, setFinishing] = useState(false);
   const [finishEndedAt, setFinishEndedAt] = useState<string | null>(null);
   const [finishError, setFinishError] = useState("");
@@ -360,7 +362,7 @@ function App({ manager }: { manager: PeerSyncManager }) {
       const current = manager.getSnapshot();
       if (current.next !== previous.next || current.activeWorkout?.id !== previous.activeWorkout?.id) {
         setActiveTab(current.activeWorkout?.workout ?? current.next);
-        if (!current.activeWorkout) { setAdjusting(false); setFinishing(false); setFinishEndedAt(null); }
+        if (!current.activeWorkout) { setAdjusting(false); setAddingExercise(false); setFinishing(false); setFinishEndedAt(null); }
       }
       previous = current;
     });
@@ -516,6 +518,7 @@ function App({ manager }: { manager: PeerSyncManager }) {
           try { setActiveWorkout({ ...activeWorkout, training: { ...(activeWorkout.training ?? trainingForWorkout(defaultPlanState().phases[0], activeWorkout.workout)), exercises } }); setAdjusting(false); return ""; } catch (error) { return error instanceof Error ? error.message : "Unable to save session adjustments."; }
         }} />}
         {isFree && activeWorkout && !finishing && <FreeSessionPicker catalog={freeCatalog} selected={activeExercises} drafts={drafts} nextLabel={workoutLabel(nextKey, phase)} onAdd={addFreeExercise} onRemove={removeFreeExercise} />}
+        {activeWorkout && !isFree && !finishing && !adjusting && <section className="free-session-picker" aria-label="Extra exercise for this workout"><details open={addingExercise} onToggle={(event) => setAddingExercise(event.currentTarget.open)}><summary>Add exercise for this workout</summary><p>This exercise is only added to this workout; your programme stays the same.</p>{addingExercise && <div className="free-picker-content"><ExercisePicker catalog={freeCatalog} excluded={activeExercises.flatMap((exercise) => [exercise.name, ...(exercise.alternatives ?? [])])} disabled={activeExercises.length >= 30} prescriptions onSelect={(exercise) => { setActiveWorkout(addWorkoutExercise(activeWorkout, exercise, activeWorkout.training ?? trainingForWorkout(defaultPlanState().phases[0], activeWorkout.workout))); setActiveTab(activeWorkout.workout); setAddingExercise(false); }} />{activeExercises.length >= 30 && <p>This workout has reached the 30 exercise limit.</p>}</div>}</details></section>}
         {finishing && activeWorkout && <FinishWorkout free={isFree} workout={workoutLabel(activeWorkout.workout, activeWorkout.training)} bodyweight={bodyweight} note={sessionNote} error={finishError} summary={finishSummary} onBodyweight={setBodyweight} onNote={setSessionNote} onBack={resumeWorkout} onSave={saveFinishedWorkout} />}
         <div className="workout-tabs train-workout-tabs" role="tablist" aria-label="Choose a workout to view">{viewSequence.map((key) => <button key={key} role="tab" aria-selected={viewTab === key} className={`${accentFor(key)}${viewTab === key ? ` active ${key}` : ""}`} onClick={() => setActiveTab(key)}>{viewWorkouts[key].name ?? workoutLabel(key)}<small>{activeWorkout?.workout === key ? "logging now" : `${viewWorkouts[key].exercises.length} exercises`}</small></button>)}</div>
         <Workout key={viewTab} accent={accentFor(viewTab)} free={isFree && activeWorkout?.workout === viewTab} workout={viewTab} data={viewWorkouts[viewTab]} onOpen={setLightbox} history={history} drafts={drafts} choices={exerciseChoices} enabled={activeWorkout?.workout === viewTab && !finishing} activeWorkoutId={activeWorkout?.workout === viewTab ? activeWorkout.id : undefined} checkpoints={checkpoints} onChoiceChange={chooseExercise} onDraftChange={updateDraft} onSave={saveExercise} /><Notes original={phaseProgramId(phase) === defaultPlanState().phases[0].programId} /></>

@@ -1,6 +1,6 @@
 import { phaseProgramId, phaseProgramName, phaseSequence, type PlanExercise, type TrainingPhase, type WorkoutTraining } from "./planModel.ts";
 import { createActiveWorkout, type ActiveWorkout } from "./sessionModel.ts";
-import { exerciseCatalog } from "./exerciseLibrary.ts";
+import { exerciseCatalog, normalizeExerciseSearch } from "./exerciseLibrary.ts";
 
 // Concrete alternatives use the same names as programme history and progression.
 export function freeSessionCatalog(phase: TrainingPhase, saved: PlanExercise[] = [], recent: string[] = []): PlanExercise[] {
@@ -34,4 +34,11 @@ export function addFreeSessionExercise(active: ActiveWorkout, exercise: PlanExer
   if (active.training?.sessionKind !== "free") throw new Error("Start a free session first.");
   if (active.training.exercises.some((item) => item.name === exercise.name) || active.training.exercises.length >= 30) return active;
   return { ...active, training: { ...active.training, exercises: [...active.training.exercises, structuredClone(exercise)] } };
+}
+
+export function addWorkoutExercise(active: ActiveWorkout, exercise: PlanExercise, fallback: WorkoutTraining): ActiveWorkout {
+  const training = active.training ?? fallback;
+  const names = training.exercises.flatMap((item) => [item.name, ...(item.alternatives ?? [])]);
+  if (training.exercises.length >= 30 || names.some((name) => normalizeExerciseSearch(name) === normalizeExerciseSearch(exercise.name))) return active;
+  return { ...active, training: { ...training, exercises: [...training.exercises, { ...structuredClone(exercise), priority: "optional" }] } };
 }
