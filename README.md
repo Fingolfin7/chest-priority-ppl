@@ -104,7 +104,7 @@ Save exercises and finish as usual. The session appears in Sessions and updates 
 
 Open **Sessions > Edit session**. To remove a session logged by mistake, open **Session details > Delete session**; its sets leave lift history on every paired browser, and an Autumn record is not deleted. Correct the start/end time, bodyweight, note, loads, or reps; add missed exercises/sets or remove incorrect entries. **Save changes** updates the session and its progression history together. **Cancel editing** discards the draft. Existing session and set IDs are preserved, and the active workout and next-workout sequence stay intact. If the session changes on another device while the editor is open, reopen it before saving.
 
-Edits sync to paired Rolling PPL browsers. An existing Autumn receipt is retained, but the Autumn record is not updated automatically; correct that record separately.
+Edits sync to paired Rolling PPL browsers. For a workout linked to Autumn, use **Update in Autumn** on its session card. Compare the current start time, finish time, and note with the Rolling PPL values. Choose the changed fields to send and, if needed, edit the proposed note to carry over text written in Autumn. **Apply selected changes** updates the linked session. If the Autumn session changes during review, refresh the preview and choose the fields again.
 
 ## Autumn sync
 

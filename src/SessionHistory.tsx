@@ -1,4 +1,6 @@
 import { useState } from "react";
+import { AutumnSessionUpdate } from "./AutumnSessionUpdate";
+import { linkedAutumnSessionId, type AutumnSettings } from "./autumn";
 import { formatExerciseSets, workoutDurationMinutes, workoutLabel, type CompletedWorkout, type ExerciseDefinition } from "./sessionModel";
 import { validateSessionEdit } from "./sessionEditing";
 
@@ -46,14 +48,14 @@ function SessionEditor({ original, definitions, onSave, onCancel }: {
       const exercise = definitions.find((item) => item.name === event.target.value);
       if (exercise) setDraft({ ...draft, exercises: [...draft.exercises, { ...exercise, sets: [{ id: crypto.randomUUID(), load: "", reps: "" }] }] });
     }}><option value="">Choose an exercise</option>{definitions.filter((item) => !draft.exercises.some((exercise) => exercise.name === item.name)).map((item) => <option key={item.name}>{item.name}</option>)}</select></label>
-    {original.sync.status === "synced" && <p>This edits your Rolling PPL record. The existing Autumn session must be updated separately.</p>}
     {error && <p className="form-error" role="alert">{error}</p>}
     <div className="finish-actions"><button className="primary-action" type="submit">Save changes</button><button className="secondary-action" type="button" onClick={onCancel}>Cancel editing</button></div>
   </form>;
 }
 
-export function SessionHistory({ sessions, definitions, onSave, onDelete }: {
+export function SessionHistory({ sessions, definitions, autumn, getSession, onSave, onDelete }: {
   sessions: CompletedWorkout[]; definitions: Record<string, ExerciseDefinition[]>;
+  autumn: AutumnSettings; getSession: (id: string) => CompletedWorkout | undefined;
   onSave: (original: CompletedWorkout, updated: CompletedWorkout) => string; onDelete: (session: CompletedWorkout) => string;
 }) {
   const [editing, setEditing] = useState<CompletedWorkout | null>(null);
@@ -67,7 +69,10 @@ export function SessionHistory({ sessions, definitions, onSave, onDelete }: {
       return error;
     }} /> : <>
       {!sessions.length && <p>Completed workouts will appear here.</p>}
-      {sessions.slice(0, limit).map((session) => <article className="past-session" key={session.id}><div className="past-session-heading"><div><h3>{workoutLabel(session.workout, session.training)} · {new Date(session.startedAt).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" })}</h3><p>{workoutDurationMinutes(session)} min · {session.exercises.reduce((sum, exercise) => sum + exercise.sets.length, 0)} sets{session.bodyweight ? ` · ${session.bodyweight} kg bodyweight` : ""}{session.training ? ` · ${session.training.programName ? `${session.training.programName} / ` : ""}${session.training.phaseName}` : ""}</p></div><button className="secondary-action" type="button" disabled={session.sync.status === "syncing"} onClick={() => { setEditing(session); setMessage(""); }}>Edit session</button></div><details><summary>Session details</summary><ul>{session.exercises.map((exercise) => <li key={exercise.name}><strong>{exercise.name}</strong>: {formatExerciseSets(exercise)}</li>)}</ul>{session.note && <p className="session-note">{session.note}</p>}<button className="text-action danger-action" type="button" disabled={session.sync.status === "syncing"} onClick={() => {
+      {sessions.slice(0, limit).map((session) => <article className="past-session" key={session.id}>
+        <div className="past-session-heading"><div><h3>{workoutLabel(session.workout, session.training)} · {new Date(session.startedAt).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" })}</h3><p>{workoutDurationMinutes(session)} min · {session.exercises.reduce((sum, exercise) => sum + exercise.sets.length, 0)} sets{session.bodyweight ? ` · ${session.bodyweight} kg bodyweight` : ""}{session.training ? ` · ${session.training.programName ? `${session.training.programName} / ` : ""}${session.training.phaseName}` : ""}</p></div><button className="secondary-action" type="button" disabled={session.sync.status === "syncing"} onClick={() => { setEditing(session); setMessage(""); }}>Edit session</button></div>
+        {linkedAutumnSessionId(session) && <AutumnSessionUpdate session={session} settings={autumn} getSession={getSession} />}
+        <details><summary>Session details</summary><ul>{session.exercises.map((exercise) => <li key={exercise.name}><strong>{exercise.name}</strong>: {formatExerciseSets(exercise)}</li>)}</ul>{session.note && <p className="session-note">{session.note}</p>}<button className="text-action danger-action" type="button" disabled={session.sync.status === "syncing"} onClick={() => {
         if (!window.confirm(`Delete this ${workoutLabel(session.workout, session.training)} session from ${new Date(session.startedAt).toLocaleDateString()}? Its sets are removed from lift history on every paired device.${session.sync.status === "synced" ? " The Autumn record is not deleted." : ""}`)) return;
         setMessage(onDelete(session) || "Session deleted.");
       }}>Delete session</button></details></article>)}

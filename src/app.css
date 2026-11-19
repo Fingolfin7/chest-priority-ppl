@@ -2232,6 +2232,77 @@ footer p {
   white-space: pre-wrap;
 }
 
+.autumn-session-action {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: .5rem;
+}
+
+.autumn-session-update {
+  display: grid;
+  gap: .7rem;
+  margin: .6rem 0;
+  padding: .8rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.autumn-session-update :is(h4, p) {
+  margin: 0;
+}
+
+.autumn-session-update fieldset {
+  min-width: 0;
+  margin: 0;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+
+.autumn-change-toggle {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  width: fit-content;
+  min-height: 44px;
+  font-size: .85rem;
+}
+
+.autumn-change-values {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: .75rem;
+  font-size: .8rem;
+}
+
+.autumn-change-values > * {
+  display: grid;
+  align-content: start;
+  gap: .3rem;
+}
+
+.autumn-change-values span {
+  color: var(--muted);
+}
+
+.autumn-change-values pre,
+.autumn-change-values textarea {
+  max-width: 100%;
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: inherit;
+}
+
+.autumn-change-values textarea {
+  width: 100%;
+  padding: .5rem;
+  border: 1px solid var(--input-line);
+  border-radius: 6px;
+  color: var(--ink);
+  background: var(--input);
+}
+
 .session-editor {
   display: grid;
   gap: 1rem;
@@ -2288,6 +2359,9 @@ footer p {
 }
 
 @media (max-width:600px) {
+  .autumn-change-values {
+    grid-template-columns: 1fr;
+  }
   .session-fields {
     grid-template-columns: 1fr;
   }
